@@ -163,7 +163,7 @@ def power_action(action: str) -> dict:
     else:
         cmd = ["reboot"]
 
-    rc, _, err = _run(cmd, timeout=10)
+    rc, _, err = _sudo_run(cmd, timeout=10)
     # Command may not return if system shuts down immediately
     if rc != 0 and rc != -1:
         return {"success": False, "error": err.strip() or f"{action} failed"}
