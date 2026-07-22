@@ -386,6 +386,76 @@ sudo visudo -c  # 驗證語法
 設定檔包含所有功能所需的特權指令（SMART、格式化、電源、服務管理、網路、VPN 等）。
 詳見 `scripts/sudoers-protech-nas`。
 
+<details>
+<summary>📄 scripts/sudoers-protech-nas 完整內容</summary>
+
+```sudoers
+# /etc/sudoers.d/protech-nas
+# Allow the ProTech NAS backend user to run privileged commands without password.
+#
+# Replace "nas" with the actual user running the backend service.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Storage — S.M.A.R.T. health monitoring
+nas ALL=(ALL) NOPASSWD: /usr/sbin/smartctl
+
+# Storage — Disk formatting
+nas ALL=(ALL) NOPASSWD: /sbin/mkfs.ext4, /sbin/mkfs.xfs, /sbin/mkfs.btrfs
+
+# Storage — Mount/Unmount
+nas ALL=(ALL) NOPASSWD: /bin/mount, /bin/umount
+
+# Storage — Partition management
+nas ALL=(ALL) NOPASSWD: /sbin/parted
+
+# Storage — RAID management
+nas ALL=(ALL) NOPASSWD: /sbin/mdadm
+
+# System — Power control
+nas ALL=(ALL) NOPASSWD: /sbin/shutdown, /sbin/reboot
+
+# System — Service management
+nas ALL=(ALL) NOPASSWD: /bin/systemctl
+
+# System — Hardware info
+nas ALL=(ALL) NOPASSWD: /usr/sbin/dmidecode
+
+# System — Package updates
+nas ALL=(ALL) NOPASSWD: /usr/bin/apt
+
+# Network — Interface configuration
+nas ALL=(ALL) NOPASSWD: /usr/sbin/netplan, /sbin/ip
+
+# Network — Firewall
+nas ALL=(ALL) NOPASSWD: /usr/sbin/iptables, /usr/sbin/nft
+
+# Shares — Samba
+nas ALL=(ALL) NOPASSWD: /usr/sbin/smbd, /usr/bin/smbpasswd, /usr/bin/testparm
+
+# Shares — NFS
+nas ALL=(ALL) NOPASSWD: /usr/sbin/exportfs
+
+# Shares — ACL
+nas ALL=(ALL) NOPASSWD: /usr/bin/setfacl, /usr/bin/getfacl
+
+# Remote — VPN (WireGuard)
+nas ALL=(ALL) NOPASSWD: /usr/bin/wg, /usr/bin/wg-quick
+
+# Remote — SSL (Certbot)
+nas ALL=(ALL) NOPASSWD: /usr/bin/certbot
+
+# Remote — Reverse proxy
+nas ALL=(ALL) NOPASSWD: /usr/sbin/nginx
+
+# Backup — Btrfs snapshots
+nas ALL=(ALL) NOPASSWD: /sbin/btrfs
+
+# User management
+nas ALL=(ALL) NOPASSWD: /usr/sbin/useradd, /usr/sbin/userdel, /usr/sbin/usermod, /usr/sbin/groupadd, /usr/sbin/groupdel, /usr/bin/gpasswd, /usr/bin/chpasswd, /usr/sbin/setquota, /usr/sbin/repquota
+```
+
+</details>
+
 > 💡 若未設定 sudoers，需要 root 權限的功能會出現 `Permission denied` 或 `Interactive authentication required` 錯誤。
 
 | 功能 | 需要套件 | 需要 root |
