@@ -1,9 +1,11 @@
 """ProTech NAS — FastAPI Backend Entry Point."""
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import router as auth_router
+from .database import init_db
 from .routers.dashboard import router as dashboard_router
 from .routers.storage import router as storage_router
 from .routers.shares import router as shares_router
@@ -16,10 +18,21 @@ from .routers.backup import router as backup_router
 from .routers.remote import router as remote_router
 from .routers.notifications import router as notifications_router
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup / shutdown lifecycle."""
+    # Import models so Base.metadata knows all tables
+    import src.models  # noqa: F401
+    await init_db()
+    yield
+
+
 app = FastAPI(
     title="ProTech NAS",
     description="NAS 管理系統 — 儲存 / 共享 / Docker / 使用者管理",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # CORS — allow Vue.js dev server

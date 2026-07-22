@@ -7,3 +7,4 @@ __pycache__/
 .pio
 .vscode
 .DS_Store
+backend/data/
