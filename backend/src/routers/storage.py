@@ -5,7 +5,8 @@ from pydantic import BaseModel
 from typing import Optional
 from ..auth import get_current_user
 from ..services.storage_service import (
-    list_disks, list_mounts, get_raid_status, mount_disk, unmount_disk
+    list_disks, list_mounts, get_raid_status, mount_disk, unmount_disk,
+    format_disk, get_smart_info, run_smart_test
 )
 
 router = APIRouter(prefix="/api/storage", tags=["storage"])
@@ -48,6 +49,47 @@ async def post_mount(req: MountRequest, user=Depends(get_current_user)):
 async def post_unmount(req: MountRequest, user=Depends(get_current_user)):
     """Unmount a device."""
     result = unmount_disk(req.mount_point)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+class FormatRequest(BaseModel):
+    device: str
+    fs_type: str
+
+
+class SmartTestRequest(BaseModel):
+    test_type: str = "short"
+
+
+@router.post("/format")
+async def post_format(req: FormatRequest, user=Depends(get_current_user)):
+    """Format a disk partition. WARNING: Irreversible."""
+    result = format_disk(req.device, req.fs_type)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.get("/smart/{device:path}")
+async def get_smart(device: str, user=Depends(get_current_user)):
+    """Get S.M.A.R.T. health info for a device."""
+    # device comes URL-decoded, e.g. "dev/sda" -> prepend /
+    if not device.startswith("/"):
+        device = f"/{device}"
+    result = get_smart_info(device)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/smart/{device:path}/test")
+async def post_smart_test(device: str, req: SmartTestRequest, user=Depends(get_current_user)):
+    """Run a S.M.A.R.T. self-test."""
+    if not device.startswith("/"):
+        device = f"/{device}"
+    result = run_smart_test(device, req.test_type)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

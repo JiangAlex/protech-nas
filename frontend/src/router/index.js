@@ -12,10 +12,15 @@ const routes = [
     redirect: '/dashboard',
     children: [
       { path: 'dashboard', name: 'Dashboard', component: () => import('../views/Dashboard.vue') },
+      { path: 'files', name: 'Files', component: () => import('../views/Files.vue') },
       { path: 'storage', name: 'Storage', component: () => import('../views/Storage.vue') },
       { path: 'shares', name: 'Shares', component: () => import('../views/Shares.vue') },
       { path: 'docker', name: 'Docker', component: () => import('../views/Docker.vue') },
       { path: 'users', name: 'Users', component: () => import('../views/Users.vue') },
+      { path: 'system', name: 'System', component: () => import('../views/System.vue') },
+      { path: 'network', name: 'Network', component: () => import('../views/Network.vue') },
+      { path: 'backup', name: 'Backup', component: () => import('../views/Backup.vue') },
+      { path: 'remote', name: 'Remote', component: () => import('../views/Remote.vue') },
     ],
   },
 ]

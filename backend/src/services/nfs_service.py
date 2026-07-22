@@ -66,3 +66,77 @@ def remove_nfs_export(path: str) -> dict:
         return {"success": True, "message": f"Export {path} removed"}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+import re
+
+
+def update_nfs_export(path: str, clients: str) -> dict:
+    """Update an existing NFS export's client rules.
+
+    Args:
+        path: The export path that already exists in /etc/exports.
+        clients: New client specification (e.g. "192.168.1.0/24(rw,sync,no_subtree_check)").
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    if not path:
+        return {"success": False, "error": "path is required"}
+    if not clients:
+        return {"success": False, "error": "clients is required"}
+
+    # Basic clients format validation
+    if not re.match(r"^[\d./a-zA-Z*]+([\s(][^\n]+)?$", clients.strip()):
+        return {"success": False, "error": f"Invalid clients format: {clients}"}
+
+    try:
+        content = Path(EXPORTS_FILE).read_text()
+    except FileNotFoundError:
+        return {"success": False, "error": "/etc/exports not found"}
+
+    lines = content.split("\n")
+    found = False
+    new_lines = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and stripped.startswith(path):
+            # Check it's the exact path (not just a prefix match)
+            parts = stripped.split(None, 1)
+            if parts[0] == path:
+                new_lines.append(f"{path} {clients}")
+                found = True
+                continue
+        new_lines.append(line)
+
+    if not found:
+        return {"success": False, "error": f"Export path {path} not found in /etc/exports"}
+
+    try:
+        Path(EXPORTS_FILE).write_text("\n".join(new_lines))
+        _reload_exports()
+        return {"success": True, "message": f"Export {path} updated"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def get_nfs_status() -> dict:
+    """Get NFS service status and connected clients.
+
+    Returns:
+        {"success": bool, "service_running": bool, "clients": list[dict]}
+    """
+    r = subprocess.run(["systemctl", "is-active", "nfs-server"], capture_output=True, text=True)
+    running = r.stdout.strip() == "active"
+
+    clients = []
+    if running:
+        r = subprocess.run(["showmount", "-a", "--no-headers"], capture_output=True, text=True)
+        if r.returncode == 0:
+            for line in r.stdout.strip().split("\n"):
+                if ":" in line:
+                    ip, mount = line.split(":", 1)
+                    clients.append({"ip": ip.strip(), "mount": mount.strip()})
+
+    return {"success": True, "service_running": running, "clients": clients}

@@ -1,6 +1,12 @@
 <template>
   <div>
-    <h2>系統儀表板</h2>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h2 style="margin:0;">系統儀表板</h2>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:12px; color:#67c23a;">● 即時</span>
+        <el-switch v-model="autoRefresh" active-text="自動刷新" />
+      </div>
+    </div>
     <el-row :gutter="16" v-if="info">
       <el-col :span="6">
         <el-card shadow="hover">
@@ -39,10 +45,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import api from '../api'
 
 const info = ref(null)
+const autoRefresh = ref(true)
+let timer = null
 
 const progressColor = [
   { color: '#67c23a', percentage: 50 },
@@ -50,8 +58,34 @@ const progressColor = [
   { color: '#f56c6c', percentage: 100 },
 ]
 
-onMounted(async () => {
-  const res = await api.get('/api/dashboard')
-  info.value = res.data
+async function fetchData() {
+  try {
+    const res = await api.get('/api/dashboard')
+    info.value = res.data
+  } catch { /* handled by interceptor */ }
+}
+
+function startTimer() {
+  stopTimer()
+  timer = setInterval(fetchData, 5000)
+}
+
+function stopTimer() {
+  if (timer) {
+    clearInterval(timer)
+    timer = null
+  }
+}
+
+watch(autoRefresh, (val) => {
+  if (val) startTimer()
+  else stopTimer()
 })
+
+onMounted(() => {
+  fetchData()
+  if (autoRefresh.value) startTimer()
+})
+
+onUnmounted(stopTimer)
 </script>

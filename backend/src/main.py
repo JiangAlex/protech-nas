@@ -8,7 +8,13 @@ from .routers.dashboard import router as dashboard_router
 from .routers.storage import router as storage_router
 from .routers.shares import router as shares_router
 from .routers.docker_mgr import router as docker_router
-from .routers.users import router as users_router
+from .routers.users import router as users_router, auth_router as users_auth_router
+from .routers.files import router as files_router
+from .routers.system import router as system_router, dashboard_router as system_dashboard_router
+from .routers.network import router as network_router
+from .routers.backup import router as backup_router
+from .routers.remote import router as remote_router
+from .routers.notifications import router as notifications_router
 
 app = FastAPI(
     title="ProTech NAS",
@@ -32,6 +38,14 @@ app.include_router(storage_router)
 app.include_router(shares_router)
 app.include_router(docker_router)
 app.include_router(users_router)
+app.include_router(users_auth_router)
+app.include_router(files_router)
+app.include_router(system_router)
+app.include_router(system_dashboard_router)
+app.include_router(network_router)
+app.include_router(backup_router)
+app.include_router(remote_router)
+app.include_router(notifications_router)
 
 
 @app.get("/")
