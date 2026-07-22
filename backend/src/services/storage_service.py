@@ -14,6 +14,15 @@ def _run(cmd: list[str]) -> tuple[int, str, str]:
         return -1, "", str(e)
 
 
+def _sudo_run(cmd: list[str], timeout: int = 60) -> tuple[int, str, str]:
+    """Run a command with sudo and return (returncode, stdout, stderr)."""
+    try:
+        r = subprocess.run(["sudo"] + cmd, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, r.stdout, r.stderr
+    except Exception as e:
+        return -1, "", str(e)
+
+
 def list_disks() -> dict:
     """List all disks and partitions using lsblk."""
     rc, out, err = _run(["lsblk", "-J", "-o", "NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL"])
@@ -169,7 +178,7 @@ def get_smart_info(device: str) -> dict:
     if not device or not re.match(r"^/dev/(sd[a-z]\d*|nvme\d+n\d+(p\d+)?)$", device):
         return {"success": False, "error": f"Invalid device path: {device}"}
 
-    rc, out, err_msg = _run(["smartctl", "-a", "--json=c", device])
+    rc, out, err_msg = _sudo_run(["smartctl", "-a", "--json=c", device])
     # smartctl returns non-zero for various reasons, but JSON output may still be valid
     if not out.strip():
         if "not found" in err_msg.lower() or rc == 127:
@@ -242,7 +251,7 @@ def run_smart_test(device: str, test_type: str = "short") -> dict:
     if test_type not in allowed_tests:
         return {"success": False, "error": f"Invalid test type: {test_type}. Allowed: {', '.join(allowed_tests)}"}
 
-    rc, out, err_msg = _run(["smartctl", "-t", test_type, device])
+    rc, out, err_msg = _sudo_run(["smartctl", "-t", test_type, device])
     if rc == 127:
         return {"success": False, "error": "smartctl not installed. Install smartmontools."}
 

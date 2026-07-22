@@ -1,0 +1,11 @@
+# /etc/sudoers.d/protech-nas
+# Allow the ProTech NAS backend user to run smartctl without password.
+#
+# Installation:
+#   sudo cp scripts/sudoers-protech-nas /etc/sudoers.d/protech-nas
+#   sudo chmod 0440 /etc/sudoers.d/protech-nas
+#   sudo visudo -c   # validate syntax
+#
+# Replace "nas" with the actual user running the backend service.
+
+nas ALL=(ALL) NOPASSWD: /usr/sbin/smartctl

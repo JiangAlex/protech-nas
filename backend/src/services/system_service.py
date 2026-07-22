@@ -72,6 +72,17 @@ def _run(cmd: list[str], timeout: int = 30) -> tuple[int, str, str]:
         return -1, "", str(e)
 
 
+def _sudo_run(cmd: list[str], timeout: int = 60) -> tuple[int, str, str]:
+    """Run a command with sudo and return (returncode, stdout, stderr)."""
+    try:
+        r = subprocess.run(["sudo"] + cmd, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, r.stdout, r.stderr
+    except subprocess.TimeoutExpired:
+        return -1, "", "Command timed out"
+    except Exception as e:
+        return -1, "", str(e)
+
+
 # ─── System Logs ──────────────────────────────────────────────────────────────
 
 def get_system_logs(unit: str = None, lines: int = 100, since: str = None) -> dict:
@@ -224,7 +235,7 @@ def _get_disk_temperatures() -> list[dict]:
         parts = line.split()
         if len(parts) >= 2 and parts[1] == "disk":
             device = f"/dev/{parts[0]}"
-            rc, smart_out, _ = _run(["smartctl", "-A", "--json=c", device])
+            rc, smart_out, _ = _sudo_run(["smartctl", "-A", "--json=c", device])
             if rc in (0, 4):  # 4 = SMART ok but some attrs failing
                 try:
                     data = json.loads(smart_out)

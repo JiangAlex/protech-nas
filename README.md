@@ -371,6 +371,24 @@ sudo apt install btrfs-progs
 > ⚠️ **權限注意：** 部分操作需要 root 權限（格式化、SMART 自檢、服務管理、電源控制等）。
 > 開發環境可用 `sudo` 啟動 uvicorn，生產環境建議透過 systemd service 以適當權限運行。
 
+### Sudoers 設定（免密碼執行特權指令）
+
+Backend 以一般使用者身份運行時，`smartctl` 等指令需要 root 權限。
+專案已透過 `_sudo_run()` 自動加上 `sudo` 前綴，但需要設定 sudoers 允許免密碼執行：
+
+```bash
+# 方法一：使用專案提供的設定檔（將 "nas" 替換為實際執行 backend 的使用者）
+sudo cp scripts/sudoers-protech-nas /etc/sudoers.d/protech-nas
+sudo chmod 0440 /etc/sudoers.d/protech-nas
+sudo visudo -c  # 驗證語法
+
+# 方法二：手動新增（將 your_user 替換為實際使用者）
+echo 'your_user ALL=(ALL) NOPASSWD: /usr/sbin/smartctl' | sudo tee /etc/sudoers.d/protech-nas
+sudo chmod 0440 /etc/sudoers.d/protech-nas
+```
+
+> 💡 若未設定 sudoers，S.M.A.R.T. 相關功能會出現 `Permission denied` 錯誤。
+
 | 功能 | 需要套件 | 需要 root |
 |------|----------|-----------|
 | S.M.A.R.T. 讀取 | smartmontools | ✅ |
