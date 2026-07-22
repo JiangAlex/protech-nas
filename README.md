@@ -337,6 +337,57 @@ Password: admin123
 - **Disk:** 200 MB (application only)
 - **Optional:** Docker, smartmontools, lm-sensors, WireGuard, Nginx, certbot
 
+## Optional System Dependencies
+
+部分功能需要安裝額外系統套件才能正常運作：
+
+```bash
+# 儲存管理 — S.M.A.R.T. 健康監控（需要 root 執行 smartctl）
+sudo apt install smartmontools
+
+# 系統管理 — CPU/磁碟溫度監控
+sudo apt install lm-sensors
+sudo sensors-detect  # 偵測硬體感測器
+
+# 網路管理 — 診斷工具
+sudo apt install traceroute dnsutils
+
+# 遠端存取 — VPN
+sudo apt install wireguard
+
+# 遠端存取 — SSL 憑證
+sudo apt install certbot
+
+# 遠端存取 — 反向代理
+sudo apt install nginx
+
+# Docker 管理
+sudo apt install docker.io docker-compose-v2
+
+# 備份 — Btrfs 快照（若使用 Btrfs 檔案系統）
+sudo apt install btrfs-progs
+```
+
+> ⚠️ **權限注意：** 部分操作需要 root 權限（格式化、SMART 自檢、服務管理、電源控制等）。
+> 開發環境可用 `sudo` 啟動 uvicorn，生產環境建議透過 systemd service 以適當權限運行。
+
+| 功能 | 需要套件 | 需要 root |
+|------|----------|-----------|
+| S.M.A.R.T. 讀取 | smartmontools | ✅ |
+| S.M.A.R.T. 自檢 | smartmontools | ✅ |
+| 磁碟格式化 | — (內建 mkfs) | ✅ |
+| CPU 溫度 | lm-sensors | ❌ |
+| 磁碟溫度 | smartmontools | ✅ |
+| Ping/Traceroute | traceroute | ❌ |
+| DNS 查詢 | dnsutils (dig) | ❌ |
+| WireGuard VPN | wireguard | ✅ |
+| SSL 憑證 | certbot | ✅ |
+| 反向代理 | nginx | ✅ |
+| Docker | docker.io | docker group |
+| 服務管理 | — (內建 systemctl) | ✅ |
+| 電源控制 | — (內建 shutdown) | ✅ |
+| Btrfs 快照 | btrfs-progs | ✅ |
+
 ## License
 
 MIT
