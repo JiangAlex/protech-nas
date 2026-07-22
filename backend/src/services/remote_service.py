@@ -9,7 +9,7 @@ from datetime import datetime
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-REMOTE_CONFIG_DIR = "/etc/protech-nas/remote"
+REMOTE_CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".protech-nas/remote")
 DDNS_CONFIG_FILE = os.path.join(REMOTE_CONFIG_DIR, "ddns.json")
 WG_CONF = "/etc/wireguard/wg0.conf"
 

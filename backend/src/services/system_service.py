@@ -546,7 +546,7 @@ def remove_cron_job(job_id: int) -> dict:
 
 import os as _os
 
-METRICS_FILE = "/var/lib/protech-nas/metrics.json"
+METRICS_FILE = os.path.join(_os.path.expanduser("~"), ".protech-nas/metrics.json")
 
 
 def record_metrics() -> dict:

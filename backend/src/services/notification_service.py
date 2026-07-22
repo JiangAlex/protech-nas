@@ -12,7 +12,7 @@ from uuid import uuid4
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-NOTIFY_CONFIG_DIR = "/etc/protech-nas/notifications"
+NOTIFY_CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".protech-nas/notifications")
 NOTIFY_SETTINGS_FILE = os.path.join(NOTIFY_CONFIG_DIR, "settings.json")
 NOTIFY_HISTORY_FILE = os.path.join(NOTIFY_CONFIG_DIR, "history.json")
 

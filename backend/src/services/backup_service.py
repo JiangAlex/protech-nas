@@ -11,7 +11,7 @@ from datetime import datetime
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-BACKUP_CONFIG_DIR = "/etc/protech-nas/backup"
+BACKUP_CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".protech-nas/backup")
 BACKUP_TASKS_FILE = os.path.join(BACKUP_CONFIG_DIR, "tasks.json")
 
 

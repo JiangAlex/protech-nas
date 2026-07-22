@@ -106,7 +106,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 
-const currentPath = ref('/data')
+const currentPath = ref('/home')
 const items = ref([])
 const loading = ref(false)
 const mkdirDialogVisible = ref(false)

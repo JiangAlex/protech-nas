@@ -9,7 +9,7 @@ from datetime import datetime
 # ─── Configuration ────────────────────────────────────────────────────────────
 
 # Allowed root directories — all file operations must stay within these
-ALLOWED_ROOTS = ["/data", "/home", "/srv", "/mnt", "/media"]
+ALLOWED_ROOTS = ["/data", "/home", "/srv", "/mnt", "/media", "/tmp"]
 
 # Maximum upload file size (2 GB)
 MAX_UPLOAD_SIZE = 2 * 1024 * 1024 * 1024
@@ -404,7 +404,7 @@ import json
 
 # ─── Compression ──────────────────────────────────────────────────────────────
 
-SHARE_LINKS_FILE = "/etc/protech-nas/share_links.json"
+SHARE_LINKS_FILE = os.path.join(os.path.expanduser("~"), ".protech-nas/share_links.json")
 
 
 def compress(paths: list, format: str, dest: str) -> dict:

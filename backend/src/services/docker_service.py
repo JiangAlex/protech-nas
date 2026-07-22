@@ -420,7 +420,7 @@ def deploy_compose(yaml_content: str, project_name: str) -> dict:
         return {"success": False, "error": "Privileged containers are not allowed"}
 
     # Write to temp file
-    compose_dir = f"/etc/protech-nas/compose/{project_name}"
+    compose_dir = f"{_os.path.expanduser('~')}/.protech-nas/compose/{project_name}"
     _os.makedirs(compose_dir, exist_ok=True)
     compose_file = _os.path.join(compose_dir, "docker-compose.yml")
 
@@ -497,7 +497,7 @@ def remove_compose_project(name: str, remove_volumes: bool = False) -> dict:
     Returns:
         {"success": bool, "message": str}
     """
-    compose_dir = f"/etc/protech-nas/compose/{name}"
+    compose_dir = f"{_os.path.expanduser('~')}/.protech-nas/compose/{name}"
     compose_file = _os.path.join(compose_dir, "docker-compose.yml")
 
     cmd = ["docker", "compose", "-p", name]
