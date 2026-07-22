@@ -361,9 +361,9 @@ from pathlib import Path as _Path
 
 # ─── TOTP (2FA) ──────────────────────────────────────────────────────────────
 
-TOTP_SECRETS_FILE = os.path.join(_os.path.expanduser("~"), ".protech-nas/totp_secrets.json")
-SESSIONS_FILE = os.path.join(_os.path.expanduser("~"), ".protech-nas/sessions.json")
-AUDIT_LOG_FILE = os.path.join(_os.path.expanduser("~"), ".protech-nas/audit.json")
+TOTP_SECRETS_FILE = _os.path.join(_os.path.expanduser("~"), ".protech-nas/totp_secrets.json")
+SESSIONS_FILE = _os.path.join(_os.path.expanduser("~"), ".protech-nas/sessions.json")
+AUDIT_LOG_FILE = _os.path.join(_os.path.expanduser("~"), ".protech-nas/audit.json")
 
 
 def _load_json_file(path, default=None):
