@@ -61,6 +61,11 @@
           </el-descriptions-item>
           <el-descriptions-item label="監聽埠">{{ vpnStatus.listen_port || '—' }}</el-descriptions-item>
         </el-descriptions>
+
+        <div style="margin-top:16px;">
+          <el-button type="warning" size="small" @click="openVpnConfigDialog">編輯設定</el-button>
+        </div>
+
         <h4 style="margin-top:16px;">Peers</h4>
         <el-button type="primary" size="small" @click="vpnPeerDialogVisible = true" style="margin-bottom:8px;">新增 Peer</el-button>
         <el-table :data="vpnStatus?.peers || []" stripe>
@@ -74,6 +79,7 @@
           </el-table-column>
         </el-table>
 
+        <!-- VPN Peer Dialog -->
         <el-dialog v-model="vpnPeerDialogVisible" title="新增 VPN Peer" width="450px">
           <el-form :model="vpnPeerForm" label-width="100px">
             <el-form-item label="Public Key">
@@ -86,6 +92,25 @@
           <template #footer>
             <el-button @click="vpnPeerDialogVisible = false">取消</el-button>
             <el-button type="primary" :loading="vpnPeerSaving" @click="addVpnPeer">新增</el-button>
+          </template>
+        </el-dialog>
+
+        <!-- VPN Config Dialog -->
+        <el-dialog v-model="vpnConfigDialogVisible" title="編輯 VPN 設定" width="450px">
+          <el-form :model="vpnConfigForm" label-width="100px">
+            <el-form-item label="位址">
+              <el-input v-model="vpnConfigForm.address" placeholder="10.0.0.1/24" />
+            </el-form-item>
+            <el-form-item label="監聽埠">
+              <el-input-number v-model="vpnConfigForm.listen_port" :min="1" :max="65535" />
+            </el-form-item>
+            <el-form-item label="DNS">
+              <el-input v-model="vpnConfigForm.dns" placeholder="1.1.1.1" />
+            </el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="vpnConfigDialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="vpnConfigSaving" @click="saveVpnConfig">儲存</el-button>
           </template>
         </el-dialog>
       </el-tab-pane>
@@ -137,17 +162,27 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 
+// DDNS
 const ddnsForm = reactive({ enabled: false, provider: 'cloudflare', domain: '', token: '' })
 const ddnsStatus = ref(null)
+
+// SSL
 const sslCerts = ref([])
 const sslDialogVisible = ref(false)
 const sslForm = reactive({ domain: '', email: 'admin@localhost' })
+
+// VPN
 const vpnStatus = ref(null)
 
 // VPN Peers
 const vpnPeerDialogVisible = ref(false)
 const vpnPeerSaving = ref(false)
 const vpnPeerForm = reactive({ public_key: '', allowed_ips: '' })
+
+// VPN Config
+const vpnConfigDialogVisible = ref(false)
+const vpnConfigSaving = ref(false)
+const vpnConfigForm = reactive({ address: '', listen_port: 51820, dns: '' })
 
 // Reverse Proxy
 const proxyRules = ref([])
@@ -156,6 +191,7 @@ const proxyDialogVisible = ref(false)
 const proxySaving = ref(false)
 const proxyForm = reactive({ domain: '', upstream: '', ssl: false })
 
+// --- DDNS ---
 async function loadDDNS() {
   try {
     const res = await api.get('/api/remote/ddns')
@@ -176,6 +212,7 @@ async function updateIP() {
   loadDDNS()
 }
 
+// --- SSL ---
 async function loadSSL() {
   try {
     const res = await api.get('/api/remote/ssl')
@@ -190,6 +227,7 @@ async function issueCert() {
   loadSSL()
 }
 
+// --- VPN ---
 async function loadVPN() {
   try {
     const res = await api.get('/api/remote/vpn/status')
@@ -197,9 +235,37 @@ async function loadVPN() {
   } catch {}
 }
 
-onMounted(() => { loadDDNS(); loadSSL(); loadVPN(); loadProxyRules() })
+// VPN Config
+function openVpnConfigDialog() {
+  // Pre-fill from current status if available
+  if (vpnStatus.value) {
+    vpnConfigForm.address = vpnStatus.value.address || ''
+    vpnConfigForm.listen_port = vpnStatus.value.listen_port || 51820
+    vpnConfigForm.dns = vpnStatus.value.dns || ''
+  }
+  vpnConfigDialogVisible.value = true
+}
 
-// VPN Peer functions
+async function saveVpnConfig() {
+  if (!vpnConfigForm.address) {
+    ElMessage.warning('請填寫 VPN 位址')
+    return
+  }
+  vpnConfigSaving.value = true
+  try {
+    await api.put('/api/remote/vpn/config', {
+      address: vpnConfigForm.address,
+      listen_port: vpnConfigForm.listen_port,
+      dns: vpnConfigForm.dns,
+    })
+    ElMessage.success('VPN 設定已儲存')
+    vpnConfigDialogVisible.value = false
+    loadVPN()
+  } catch { /* handled */ }
+  finally { vpnConfigSaving.value = false }
+}
+
+// VPN Peers
 async function addVpnPeer() {
   if (!vpnPeerForm.public_key || !vpnPeerForm.allowed_ips) {
     ElMessage.warning('請填寫 Public Key 和 Allowed IPs')
@@ -229,7 +295,7 @@ async function deleteVpnPeer(publicKey) {
   } catch { /* handled */ }
 }
 
-// Reverse Proxy functions
+// --- Reverse Proxy ---
 async function loadProxyRules() {
   proxyLoading.value = true
   try {
@@ -269,4 +335,6 @@ async function deleteProxyRule(id) {
     loadProxyRules()
   } catch { /* handled */ }
 }
+
+onMounted(() => { loadDDNS(); loadSSL(); loadVPN(); loadProxyRules() })
 </script>

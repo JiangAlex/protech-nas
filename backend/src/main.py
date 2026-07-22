@@ -1,11 +1,15 @@
 """ProTech NAS — FastAPI Backend Entry Point."""
 
+import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+
+import structlog
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import router as auth_router
 from .database import init_db
+from .logging_config import setup_logging
 from .routers.dashboard import router as dashboard_router
 from .routers.storage import router as storage_router
 from .routers.shares import router as shares_router
@@ -18,6 +22,13 @@ from .routers.backup import router as backup_router
 from .routers.remote import router as remote_router
 from .routers.notifications import router as notifications_router
 
+# Initialize structured logging
+setup_logging(
+    log_level=os.getenv("LOG_LEVEL", "INFO"),
+    json_output=os.getenv("LOG_FORMAT", "console") == "json",
+)
+logger = structlog.get_logger()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -25,7 +36,9 @@ async def lifespan(app: FastAPI):
     # Import models so Base.metadata knows all tables
     import src.models  # noqa: F401
     await init_db()
+    logger.info("app_started", version="0.1.0")
     yield
+    logger.info("app_shutdown")
 
 
 app = FastAPI(
@@ -43,6 +56,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    """Add request_id to structlog context for request tracing."""
+    import uuid
+    request_id = str(uuid.uuid4())[:8]
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(request_id=request_id)
+
+    response = await call_next(request)
+
+    # Log non-health requests
+    if request.url.path not in ("/api/health", "/"):
+        logger.info(
+            "request",
+            method=request.method,
+            path=request.url.path,
+            status=response.status_code,
+        )
+    return response
 
 # Mount routers
 app.include_router(auth_router)

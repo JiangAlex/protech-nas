@@ -41,16 +41,59 @@
       </el-col>
     </el-row>
     <el-skeleton v-else :rows="4" animated />
+
+    <!-- History Chart -->
+    <el-card style="margin-top:20px;" shadow="hover" v-if="historyData.length > 0">
+      <template #header>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span>歷史趨勢（24 小時）</span>
+          <el-button size="small" @click="loadHistory">重新整理</el-button>
+        </div>
+      </template>
+      <v-chart :option="chartOption" style="height:280px;" autoresize />
+    </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import VChart from 'vue-echarts'
 import api from '../api'
+
+use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, LegendComponent])
 
 const info = ref(null)
 const autoRefresh = ref(true)
 let timer = null
+
+// History chart
+const historyData = ref([])
+
+const chartOption = computed(() => {
+  const timestamps = historyData.value.map(d => d.timestamp?.substring(11, 16) || '')
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['CPU %', '記憶體 %'] },
+    grid: { left: 50, right: 20, top: 40, bottom: 30 },
+    xAxis: { type: 'category', data: timestamps },
+    yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%' } },
+    series: [
+      { name: 'CPU %', type: 'line', smooth: true, data: historyData.value.map(d => d.cpu_percent) },
+      { name: '記憶體 %', type: 'line', smooth: true, data: historyData.value.map(d => d.memory_percent) },
+    ],
+  }
+})
+
+async function loadHistory() {
+  try {
+    const res = await api.get('/api/dashboard/history', { params: { hours: 24 } })
+    historyData.value = res.data.data || []
+  } catch { /* handled */ }
+}
 
 const progressColor = [
   { color: '#67c23a', percentage: 50 },
@@ -84,6 +127,7 @@ watch(autoRefresh, (val) => {
 
 onMounted(() => {
   fetchData()
+  loadHistory()
   if (autoRefresh.value) startTimer()
 })
 

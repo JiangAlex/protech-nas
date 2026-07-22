@@ -21,6 +21,7 @@ const routes = [
       { path: 'network', name: 'Network', component: () => import('../views/Network.vue') },
       { path: 'backup', name: 'Backup', component: () => import('../views/Backup.vue') },
       { path: 'remote', name: 'Remote', component: () => import('../views/Remote.vue') },
+      { path: 'notifications', name: 'Notifications', component: () => import('../views/Notifications.vue') },
     ],
   },
 ]

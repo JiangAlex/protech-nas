@@ -89,12 +89,16 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Moon, Sunny } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
+import { useKeyboardShortcuts } from '../composables/useKeyboardShortcuts'
 import api from '../api'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const { locale: i18nLocale } = useI18n()
+
+// Global keyboard shortcuts
+useKeyboardShortcuts()
 
 // Sidebar collapse
 const isCollapsed = ref(localStorage.getItem('sidebarCollapsed') === 'true')

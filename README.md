@@ -345,6 +345,9 @@ Password: admin123
 # 儲存管理 — S.M.A.R.T. 健康監控（需要 root 執行 smartctl）
 sudo apt install smartmontools
 
+# 儲存管理 — exFAT 格式化支援
+sudo apt install exfatprogs
+
 # 系統管理 — CPU/磁碟溫度監控
 sudo apt install lm-sensors
 sudo sensors-detect  # 偵測硬體感測器
@@ -400,7 +403,7 @@ sudo visudo -c  # 驗證語法
 nas ALL=(ALL) NOPASSWD: /usr/sbin/smartctl
 
 # Storage — Disk formatting
-nas ALL=(ALL) NOPASSWD: /sbin/mkfs.ext4, /sbin/mkfs.xfs, /sbin/mkfs.btrfs
+nas ALL=(ALL) NOPASSWD: /sbin/mkfs.ext4, /sbin/mkfs.xfs, /sbin/mkfs.btrfs, /usr/sbin/mkfs.exfat
 
 # Storage — Mount/Unmount
 nas ALL=(ALL) NOPASSWD: /bin/mount, /bin/umount
@@ -462,7 +465,7 @@ nas ALL=(ALL) NOPASSWD: /usr/sbin/useradd, /usr/sbin/userdel, /usr/sbin/usermod,
 |------|----------|-----------|
 | S.M.A.R.T. 讀取 | smartmontools | ✅ |
 | S.M.A.R.T. 自檢 | smartmontools | ✅ |
-| 磁碟格式化 | — (內建 mkfs) | ✅ |
+| 磁碟格式化 | — (內建 mkfs)；exFAT 需 exfatprogs | ✅ |
 | CPU 溫度 | lm-sensors | ❌ |
 | 磁碟溫度 | smartmontools | ✅ |
 | Ping/Traceroute | traceroute | ❌ |

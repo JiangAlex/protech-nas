@@ -4,11 +4,11 @@
       <template #header>
         <h2 style="text-align: center; margin: 0;">ProTech NAS</h2>
       </template>
-      <el-form :model="form" @submit.prevent="handleLogin" label-width="0">
-        <el-form-item>
+      <el-form ref="formRef" :model="form" :rules="rules" @submit.prevent="handleLogin" label-width="0">
+        <el-form-item prop="username">
           <el-input v-model="form.username" placeholder="帳號" prefix-icon="User" size="large" />
         </el-form-item>
-        <el-form-item>
+        <el-form-item prop="password">
           <el-input v-model="form.password" placeholder="密碼" prefix-icon="Lock" type="password" size="large" show-password />
         </el-form-item>
         <el-form-item>
@@ -27,11 +27,20 @@ import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const formRef = ref(null)
 const form = reactive({ username: '', password: '' })
 const loading = ref(false)
 const error = ref('')
 
+const rules = {
+  username: [{ required: true, message: '請輸入帳號', trigger: 'blur' }],
+  password: [{ required: true, message: '請輸入密碼', trigger: 'blur' }],
+}
+
 async function handleLogin() {
+  const valid = await formRef.value.validate().catch(() => false)
+  if (!valid) return
+
   loading.value = true
   error.value = ''
   try {

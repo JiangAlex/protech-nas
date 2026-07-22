@@ -106,7 +106,7 @@ def _validate_device(device: str) -> str | None:
 
 # ─── Format ──────────────────────────────────────────────────────────────────
 
-_SUPPORTED_FS = ("ext4", "xfs", "btrfs")
+_SUPPORTED_FS = ("ext4", "xfs", "btrfs", "exfat")
 
 
 def format_disk(device: str, fs_type: str) -> dict:
@@ -148,6 +148,7 @@ def format_disk(device: str, fs_type: str) -> dict:
         cmd.append("-f")  # Force overwrite
     elif fs_type == "btrfs":
         cmd.append("-f")  # Force overwrite
+    # exfat: mkfs.exfat has no force flag needed
     cmd.append(device)
 
     rc, out, err_msg = _run(cmd)

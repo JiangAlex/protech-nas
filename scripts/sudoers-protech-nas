@@ -13,7 +13,7 @@
 nas ALL=(ALL) NOPASSWD: /usr/sbin/smartctl
 
 # Storage — Disk formatting
-nas ALL=(ALL) NOPASSWD: /sbin/mkfs.ext4, /sbin/mkfs.xfs, /sbin/mkfs.btrfs
+nas ALL=(ALL) NOPASSWD: /sbin/mkfs.ext4, /sbin/mkfs.xfs, /sbin/mkfs.btrfs, /usr/sbin/mkfs.exfat
 
 # Storage — Mount/Unmount
 nas ALL=(ALL) NOPASSWD: /bin/mount, /bin/umount
