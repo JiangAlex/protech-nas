@@ -8,7 +8,8 @@ from ..services.remote_service import (
     get_ddns_config, update_ddns_config, ddns_update_ip,
     get_ssl_status, issue_ssl_cert,
     get_vpn_status, update_vpn_config,
-    add_vpn_peer, remove_vpn_peer, manage_reverse_proxy
+    add_vpn_peer, remove_vpn_peer, manage_reverse_proxy,
+    list_proxy_rules, delete_proxy_rule
 )
 
 router = APIRouter(prefix="/api/remote", tags=["remote"])
@@ -137,8 +138,7 @@ class ReverseProxyRequest(BaseModel):
 @router.get("/reverse-proxy")
 async def get_reverse_proxy(user=Depends(get_current_user)):
     """List current reverse proxy configurations."""
-    result = manage_reverse_proxy([])
-    return result
+    return list_proxy_rules()
 
 
 @router.post("/reverse-proxy")
@@ -147,5 +147,33 @@ async def post_reverse_proxy(data: ReverseProxyRequest, user=Depends(get_current
     rules = [r.model_dump() for r in data.rules]
     result = manage_reverse_proxy(rules)
     if not result.get("success", True):
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+# ─── Proxy Rules (frontend-compatible endpoints) ─────────────────────────────
+
+
+@router.get("/proxy/rules")
+async def get_proxy_rules(user=Depends(get_current_user)):
+    """List current proxy rules."""
+    result = list_proxy_rules()
+    return result
+
+
+@router.post("/proxy/rules")
+async def post_proxy_rule(data: ProxyRule, user=Depends(get_current_user)):
+    """Add a single proxy rule."""
+    result = manage_reverse_proxy([data.model_dump()])
+    if not result.get("success", True):
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.delete("/proxy/rules/{domain}")
+async def del_proxy_rule(domain: str, user=Depends(get_current_user)):
+    """Delete a proxy rule by domain."""
+    result = delete_proxy_rule(domain)
+    if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

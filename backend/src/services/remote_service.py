@@ -487,3 +487,67 @@ server {{
     _run(["systemctl", "reload", "nginx"])
 
     return {"success": True, "message": f"Proxy rules created for: {', '.join(created)}"}
+
+
+def list_proxy_rules() -> dict:
+    """List current reverse proxy rules by scanning Nginx config files.
+
+    Returns:
+        {"success": bool, "rules": list[{"id": str, "domain": str, "upstream": str, "ssl": bool}]}
+    """
+    rules = []
+    conf_dir = Path(PROXY_CONF_DIR)
+
+    if not conf_dir.exists():
+        return {"success": True, "rules": []}
+
+    for conf_file in sorted(conf_dir.glob("protech-*.conf")):
+        domain = conf_file.stem.replace("protech-", "", 1)
+        content = conf_file.read_text()
+
+        # Extract upstream from proxy_pass
+        upstream_match = re.search(r"proxy_pass\s+https?://([^;]+);", content)
+        upstream = upstream_match.group(1) if upstream_match else ""
+
+        # Check if SSL is configured
+        use_ssl = "listen 443 ssl" in content
+
+        rules.append({
+            "id": domain,
+            "domain": domain,
+            "upstream": upstream,
+            "ssl": use_ssl,
+        })
+
+    return {"success": True, "rules": rules}
+
+
+def delete_proxy_rule(domain: str) -> dict:
+    """Delete a reverse proxy rule.
+
+    Args:
+        domain: The domain identifier of the rule to delete.
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    if not domain or not re.match(r"^[a-zA-Z0-9\-._]+$", domain):
+        return {"success": False, "error": f"Invalid domain: {domain}"}
+
+    conf_path = os.path.join(PROXY_CONF_DIR, f"protech-{domain}.conf")
+    enabled_path = os.path.join(PROXY_ENABLED_DIR, f"protech-{domain}.conf")
+
+    if not os.path.exists(conf_path):
+        return {"success": False, "error": f"Rule not found for domain: {domain}"}
+
+    # Remove symlink and config
+    if os.path.exists(enabled_path):
+        os.remove(enabled_path)
+    os.remove(conf_path)
+
+    # Reload Nginx
+    rc, _, err = _run(["nginx", "-t"])
+    if rc == 0:
+        _run(["systemctl", "reload", "nginx"])
+
+    return {"success": True, "message": f"Proxy rule for {domain} deleted"}
