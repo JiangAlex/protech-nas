@@ -92,7 +92,26 @@ def unmount_disk(mount_point: str) -> dict:
 
 # ─── Device Validation ────────────────────────────────────────────────────────
 
-_ALLOWED_DEVICE_PATTERN = re.compile(r"^/dev/(sd[b-z]\d*|nvme\d+n\d+(p\d+)?)$")
+_ALLOWED_DEVICE_PATTERN = re.compile(r"^/dev/(sd[a-z]\d*|nvme\d+n\d+(p\d+)?)$")
+
+
+def _get_system_disk() -> str:
+    """Detect which disk holds the root filesystem (/)."""
+    try:
+        rc, out, _ = _run(["findmnt", "-n", "-o", "SOURCE", "/"])
+        if rc == 0 and out.strip():
+            source = out.strip()  # e.g. /dev/sdb2
+            # Strip partition number to get parent disk
+            m = re.match(r"(/dev/sd[a-z])", source)
+            if m:
+                return m.group(1)
+            # NVMe: /dev/nvme0n1p2 -> /dev/nvme0n1
+            m = re.match(r"(/dev/nvme\d+n\d+)", source)
+            if m:
+                return m.group(1)
+    except Exception:
+        pass
+    return "/dev/sda"  # fallback: assume sda is system disk
 
 
 def _validate_device(device: str) -> str | None:
@@ -100,7 +119,15 @@ def _validate_device(device: str) -> str | None:
     if not device:
         return "device is required"
     if not _ALLOWED_DEVICE_PATTERN.match(device):
-        return f"Invalid or disallowed device: {device}. System disk /dev/sda is protected."
+        return f"Invalid device path: {device}"
+
+    # Block the system disk and all its partitions
+    sys_disk = _get_system_disk()
+    if device == sys_disk or device.startswith(sys_disk) and (
+        len(device) == len(sys_disk) or device[len(sys_disk):].isdigit()
+        or device[len(sys_disk):].startswith("p")
+    ):
+        return f"Device {device} is on the system disk ({sys_disk}). Operation blocked to protect the OS."
     return None
 
 
