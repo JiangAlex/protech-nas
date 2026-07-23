@@ -22,6 +22,14 @@ sudo apt install -y \
     curl \
     wget
 
+# Install optional packages for full functionality
+sudo apt install -y \
+    exfatprogs \
+    lm-sensors \
+    traceroute \
+    dnsutils \
+    nginx
+
 # Install Node.js 20.x (via NodeSource)
 if ! command -v node &> /dev/null; then
     echo "Installing Node.js 20.x..."
