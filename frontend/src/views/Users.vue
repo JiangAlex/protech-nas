@@ -24,6 +24,7 @@
             <template #default="{ row }">
               <el-button size="small" @click="openEdit(row)">編輯</el-button>
               <el-button size="small" @click="openPassword(row)">密碼</el-button>
+              <el-button size="small" type="success" @click="openSmb(row)">SMB</el-button>
               <el-button size="small" @click="openQuota(row.username)">配額</el-button>
               <el-button size="small" type="warning" @click="open2FA(row.username)">2FA</el-button>
               <el-button type="danger" size="small" @click="deleteUser(row.username)">刪除</el-button>
@@ -148,6 +149,19 @@
     </el-dialog>
 
     <!-- Quota Dialog -->
+    <!-- SMB Password Dialog -->
+    <el-dialog v-model="smbDialogVisible" :title="'設定 SMB 密碼 — ' + smbUsername" width="400px">
+      <p style="margin-bottom:12px; color:#666;">設定此使用者的 Samba 連線密碼。設定後即可從 Windows 網路芳鄰連線。</p>
+      <el-form label-width="100px">
+        <el-form-item label="帳號"><el-input :model-value="smbUsername" disabled /></el-form-item>
+        <el-form-item label="SMB 密碼"><el-input v-model="smbPassword" type="password" show-password placeholder="輸入 Samba 連線密碼" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="smbDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="smbSaving" @click="saveSmbPassword">儲存</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="quotaDialogVisible" :title="'磁碟配額 — ' + quotaUser">
       <div v-if="quotaData" style="margin-bottom:16px;">
         <p>目前使用：{{ quotaData.used_mb }} MB</p>
@@ -282,6 +296,12 @@ const pwRules = {
   ],
 }
 
+// SMB
+const smbDialogVisible = ref(false)
+const smbUsername = ref('')
+const smbPassword = ref('')
+const smbSaving = ref(false)
+
 // Quota
 const quotaDialogVisible = ref(false)
 const quotaUser = ref('')
@@ -396,6 +416,28 @@ async function toggleUserStatus(username, enabled) {
   await api.put(`/api/users/${username}/status`, { enabled })
   ElMessage.success(enabled ? '已啟用' : '已停用')
   loadData()
+}
+
+// --- Quota ---
+// --- SMB ---
+function openSmb(row) {
+  smbUsername.value = row.username
+  smbPassword.value = ''
+  smbDialogVisible.value = true
+}
+
+async function saveSmbPassword() {
+  if (!smbPassword.value || smbPassword.value.length < 4) {
+    ElMessage.warning('請輸入至少 4 字元的密碼')
+    return
+  }
+  smbSaving.value = true
+  try {
+    await api.post(`/api/users/${smbUsername.value}/smb`, { password: smbPassword.value })
+    ElMessage.success('SMB 密碼已設定')
+    smbDialogVisible.value = false
+  } catch { /* handled */ }
+  finally { smbSaving.value = false }
 }
 
 // --- Quota ---

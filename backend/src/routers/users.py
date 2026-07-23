@@ -8,7 +8,8 @@ from ..services.user_service import (
     list_users, create_user, delete_user, change_password,
     list_groups, create_group, delete_group, update_user,
     disable_user, enable_user, update_group_members, get_quota, set_quota,
-    setup_totp, verify_totp, get_audit_log, list_sessions, revoke_session
+    setup_totp, verify_totp, get_audit_log, list_sessions, revoke_session,
+    set_smb_password
 )
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -74,6 +75,19 @@ async def put_user(username: str, data: UserUpdate, user=Depends(get_current_use
 async def put_password(username: str, data: PasswordChange, user=Depends(get_current_user)):
     """Change user password."""
     result = change_password(username, data.password)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+class SmbPassword(BaseModel):
+    password: str
+
+
+@router.post("/{username}/smb")
+async def post_smb_password(username: str, data: SmbPassword, user=Depends(get_current_user)):
+    """Set or update Samba password for a user."""
+    result = set_smb_password(username, data.password)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

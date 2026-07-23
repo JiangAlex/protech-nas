@@ -227,6 +227,30 @@ def enable_user(username: str) -> dict:
     return {"success": True, "message": f"User {username} enabled"}
 
 
+def set_smb_password(username: str, password: str) -> dict:
+    """Set or update Samba password for an existing user.
+
+    This adds the user to Samba if not already added, or updates their password.
+    """
+    if not username or not password:
+        return {"success": False, "error": "username and password are required"}
+
+    # Check user exists
+    rc, _, _ = _run(["id", username])
+    if rc != 0:
+        return {"success": False, "error": f"User {username} does not exist"}
+
+    # smbpasswd -a -s reads password from stdin (two lines)
+    rc, out, err = _run(["sudo", "smbpasswd", "-a", "-s", username], input_data=f"{password}\n{password}\n")
+    if rc != 0:
+        return {"success": False, "error": f"Failed to set SMB password: {err.strip()}"}
+
+    # Ensure enabled
+    _run(["sudo", "smbpasswd", "-e", username])
+
+    return {"success": True, "message": f"SMB password set for {username}"}
+
+
 def update_group_members(group_name: str, add: list = None, remove: list = None) -> dict:
     """Add or remove users from a group.
 
