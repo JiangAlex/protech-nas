@@ -69,7 +69,12 @@ def add_smb_share(config: dict) -> dict:
         return {"success": False, "error": "name and path are required"}
 
     # Ensure path exists
-    Path(path).mkdir(parents=True, exist_ok=True)
+    try:
+        Path(path).mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        rc, _, err = _sudo_run(["mkdir", "-p", path])
+        if rc != 0:
+            return {"success": False, "error": f"Cannot create directory {path}: {err}"}
 
     # Build share block
     block = f"\n[{name}]\n"

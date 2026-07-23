@@ -37,7 +37,13 @@ def add_nfs_export(path: str, clients: str) -> dict:
         return {"success": False, "error": "path is required"}
 
     # Ensure path exists
-    Path(path).mkdir(parents=True, exist_ok=True)
+    try:
+        Path(path).mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        import subprocess
+        r = subprocess.run(["sudo", "mkdir", "-p", path], capture_output=True, text=True)
+        if r.returncode != 0:
+            return {"success": False, "error": f"Cannot create directory {path}: {r.stderr}"}
 
     entry = f"{path} {clients}\n"
 
