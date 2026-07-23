@@ -45,6 +45,13 @@ def add_nfs_export(path: str, clients: str) -> dict:
         if r.returncode != 0:
             return {"success": False, "error": f"Cannot create directory {path}: {r.stderr}"}
 
+    # Set proper ownership and permissions
+    import subprocess as _sp
+    import os
+    user = os.getenv("USER", "root")
+    _sp.run(["sudo", "chown", f"{user}:{user}", path], capture_output=True)
+    _sp.run(["sudo", "chmod", "775", path], capture_output=True)
+
     entry = f"{path} {clients}\n"
 
     try:

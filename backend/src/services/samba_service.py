@@ -76,6 +76,12 @@ def add_smb_share(config: dict) -> dict:
         if rc != 0:
             return {"success": False, "error": f"Cannot create directory {path}: {err}"}
 
+    # Set proper ownership and permissions
+    import os
+    user = os.getenv("USER", "root")
+    _sudo_run(["chown", f"{user}:{user}", path])
+    _sudo_run(["chmod", "775", path])
+
     # Build share block
     block = f"\n[{name}]\n"
     block += f"   path = {path}\n"
