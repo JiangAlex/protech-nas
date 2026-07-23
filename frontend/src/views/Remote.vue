@@ -153,6 +153,88 @@
           </template>
         </el-dialog>
       </el-tab-pane>
+
+      <!-- Tailscale -->
+      <el-tab-pane label="Tailscale">
+        <el-button @click="loadTailscale" style="margin-bottom:12px;">重新整理</el-button>
+
+        <!-- Not installed -->
+        <el-alert v-if="ts.loaded && !ts.installed" type="warning" :closable="false" style="margin-bottom:16px;">
+          Tailscale 尚未安裝。請執行：<code>curl -fsSL https://tailscale.com/install.sh | sh</code>
+        </el-alert>
+
+        <!-- Status -->
+        <el-descriptions :column="2" border v-if="ts.installed" style="margin-bottom:16px;">
+          <el-descriptions-item label="狀態">
+            <el-tag :type="ts.running ? 'success' : 'info'">{{ ts.running ? '已連線' : '未連線' }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="版本">{{ ts.version || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="主機名">{{ ts.self.hostname || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="Tailscale IP">{{ ts.self.ip || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="DNS 名稱">{{ ts.self.dns_name || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="狀態">{{ ts.backend_state || '—' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <!-- Controls -->
+        <div v-if="ts.installed" style="margin-bottom:16px;">
+          <el-button type="success" :loading="tsLoading" @click="tsConnect" :disabled="ts.running">連線</el-button>
+          <el-button type="warning" :loading="tsLoading" @click="tsDisconnect" :disabled="!ts.running">斷線</el-button>
+          <el-button type="danger" :loading="tsLoading" @click="tsLogout" :disabled="!ts.running">登出</el-button>
+        </div>
+
+        <!-- Auth URL -->
+        <el-alert v-if="tsAuthUrl" type="info" :closable="true" style="margin-bottom:16px;" @close="tsAuthUrl = ''">
+          需要認證，請開啟此連結登入：<br>
+          <a :href="tsAuthUrl" target="_blank" style="word-break:break-all;">{{ tsAuthUrl }}</a>
+        </el-alert>
+
+        <!-- Subnet Routes -->
+        <el-card header="子網路由 (Subnet Routes)" style="margin-bottom:16px;" v-if="ts.installed">
+          <el-form inline>
+            <el-form-item>
+              <el-input v-model="tsRoutes" placeholder="192.168.1.0/24,10.0.0.0/8" style="width:300px;" />
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="setRoutes">套用</el-button>
+            </el-form-item>
+          </el-form>
+          <el-text type="info" size="small">設定後需到 Tailscale Admin Console 核准路由</el-text>
+        </el-card>
+
+        <!-- Exit Node -->
+        <el-card header="Exit Node" style="margin-bottom:16px;" v-if="ts.installed && ts.running">
+          <el-form inline>
+            <el-form-item label="使用節點">
+              <el-select v-model="tsExitNode" placeholder="不使用" clearable style="width:220px;">
+                <el-option value="" label="不使用 (直連)" />
+                <el-option v-for="p in tsExitNodeOptions" :key="p.ip" :value="p.ip" :label="p.hostname + ' (' + p.ip + ')'" />
+              </el-select>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="setExitNode">套用</el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+
+        <!-- Peers -->
+        <h4 v-if="ts.installed && ts.running">網路中的裝置</h4>
+        <el-table v-if="ts.installed && ts.running" :data="ts.peers" stripe>
+          <el-table-column prop="hostname" label="主機名" />
+          <el-table-column prop="ip" label="Tailscale IP" width="150" />
+          <el-table-column prop="os" label="系統" width="100" />
+          <el-table-column prop="online" label="狀態" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.online ? 'success' : 'info'" size="small">{{ row.online ? '在線' : '離線' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="exit_node" label="Exit Node" width="100">
+            <template #default="{ row }">
+              <el-tag v-if="row.exit_node" type="warning" size="small">使用中</el-tag>
+              <el-tag v-else-if="row.exit_node_option" type="info" size="small">可用</el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -190,6 +272,22 @@ const proxyLoading = ref(false)
 const proxyDialogVisible = ref(false)
 const proxySaving = ref(false)
 const proxyForm = reactive({ domain: '', upstream: '', ssl: false })
+
+// Tailscale
+const ts = reactive({
+  loaded: false,
+  installed: false,
+  running: false,
+  version: '',
+  backend_state: '',
+  self: {},
+  peers: [],
+})
+const tsLoading = ref(false)
+const tsAuthUrl = ref('')
+const tsRoutes = ref('')
+const tsExitNode = ref('')
+const tsExitNodeOptions = ref([])
 
 // --- DDNS ---
 async function loadDDNS() {
@@ -336,5 +434,80 @@ async function deleteProxyRule(id) {
   } catch { /* handled */ }
 }
 
-onMounted(() => { loadDDNS(); loadSSL(); loadVPN(); loadProxyRules() })
+// --- Tailscale ---
+async function loadTailscale() {
+  try {
+    const res = await api.get('/api/remote/tailscale/status')
+    ts.loaded = true
+    ts.installed = res.data.installed || false
+    ts.running = res.data.running || false
+    ts.version = res.data.version || ''
+    ts.backend_state = res.data.backend_state || ''
+    ts.self = res.data.self || {}
+    ts.peers = res.data.peers || []
+    // Populate exit node options
+    tsExitNodeOptions.value = ts.peers.filter(p => p.exit_node_option || p.exit_node)
+    // Set current exit node
+    const activeExit = ts.peers.find(p => p.exit_node)
+    tsExitNode.value = activeExit ? activeExit.ip : ''
+  } catch {
+    ts.loaded = true
+    ts.installed = false
+  }
+}
+
+async function tsConnect() {
+  tsLoading.value = true
+  tsAuthUrl.value = ''
+  try {
+    const res = await api.post('/api/remote/tailscale/up', { accept_routes: true })
+    if (res.data.auth_url) {
+      tsAuthUrl.value = res.data.auth_url
+      ElMessage.info('請開啟連結完成認證')
+    } else {
+      ElMessage.success('Tailscale 已連線')
+    }
+    loadTailscale()
+  } catch { /* handled */ }
+  finally { tsLoading.value = false }
+}
+
+async function tsDisconnect() {
+  tsLoading.value = true
+  try {
+    await api.post('/api/remote/tailscale/down')
+    ElMessage.success('Tailscale 已斷線')
+    loadTailscale()
+  } catch { /* handled */ }
+  finally { tsLoading.value = false }
+}
+
+async function tsLogout() {
+  await ElMessageBox.confirm('登出後需重新認證才能連線，確定？', '確認', { type: 'warning' })
+  tsLoading.value = true
+  try {
+    await api.post('/api/remote/tailscale/logout')
+    ElMessage.success('已登出 Tailscale')
+    loadTailscale()
+  } catch { /* handled */ }
+  finally { tsLoading.value = false }
+}
+
+async function setRoutes() {
+  try {
+    await api.put('/api/remote/tailscale/routes', { routes: tsRoutes.value })
+    ElMessage.success('子網路由已更新')
+    loadTailscale()
+  } catch { /* handled */ }
+}
+
+async function setExitNode() {
+  try {
+    await api.put('/api/remote/tailscale/exit-node', { peer_ip: tsExitNode.value })
+    ElMessage.success(tsExitNode.value ? `Exit Node 已設為 ${tsExitNode.value}` : 'Exit Node 已清除')
+    loadTailscale()
+  } catch { /* handled */ }
+}
+
+onMounted(() => { loadDDNS(); loadSSL(); loadVPN(); loadProxyRules(); loadTailscale() })
 </script>

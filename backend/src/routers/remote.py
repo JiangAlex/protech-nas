@@ -177,3 +177,91 @@ async def del_proxy_rule(domain: str, user=Depends(get_current_user)):
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+
+# ─── Tailscale ───────────────────────────────────────────────────────────────
+
+from ..services.tailscale_service import (
+    get_status as ts_get_status,
+    tailscale_up as ts_up,
+    tailscale_down as ts_down,
+    tailscale_logout as ts_logout,
+    set_exit_node as ts_set_exit_node,
+    set_advertise_routes as ts_set_routes,
+    get_ip as ts_get_ip,
+)
+
+
+class TailscaleUpRequest(BaseModel):
+    advertise_routes: Optional[str] = None
+    advertise_exit_node: bool = False
+    accept_routes: bool = True
+    hostname: Optional[str] = None
+    ssh: bool = False
+    reset: bool = False
+
+
+class TailscaleExitNodeRequest(BaseModel):
+    peer_ip: str = ""
+
+
+class TailscaleRoutesRequest(BaseModel):
+    routes: str = ""
+
+
+@router.get("/tailscale/status")
+async def get_tailscale_status(user=Depends(get_current_user)):
+    """Get Tailscale status and peer list."""
+    return ts_get_status()
+
+
+@router.post("/tailscale/up")
+async def post_tailscale_up(data: TailscaleUpRequest = TailscaleUpRequest(), user=Depends(get_current_user)):
+    """Connect Tailscale."""
+    options = {k: v for k, v in data.model_dump().items() if v}
+    result = ts_up(options if options else None)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", ""))
+    return result
+
+
+@router.post("/tailscale/down")
+async def post_tailscale_down(user=Depends(get_current_user)):
+    """Disconnect Tailscale."""
+    result = ts_down()
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", ""))
+    return result
+
+
+@router.post("/tailscale/logout")
+async def post_tailscale_logout(user=Depends(get_current_user)):
+    """Logout from Tailscale."""
+    result = ts_logout()
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", ""))
+    return result
+
+
+@router.put("/tailscale/exit-node")
+async def put_tailscale_exit_node(data: TailscaleExitNodeRequest, user=Depends(get_current_user)):
+    """Set or clear exit node."""
+    result = ts_set_exit_node(data.peer_ip)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", ""))
+    return result
+
+
+@router.put("/tailscale/routes")
+async def put_tailscale_routes(data: TailscaleRoutesRequest, user=Depends(get_current_user)):
+    """Set advertised subnet routes."""
+    result = ts_set_routes(data.routes)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", ""))
+    return result
+
+
+@router.get("/tailscale/ip")
+async def get_tailscale_ip(user=Depends(get_current_user)):
+    """Get Tailscale IP addresses."""
+    return ts_get_ip()
