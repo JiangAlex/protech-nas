@@ -30,7 +30,15 @@ def list_disks() -> dict:
         return {"success": False, "error": err}
     try:
         data = json.loads(out)
-        return {"success": True, "devices": data.get("blockdevices", [])}
+        # Flatten nested children (partitions) into a flat list
+        devices = []
+        for dev in data.get("blockdevices", []):
+            children = dev.pop("children", [])
+            devices.append(dev)
+            for child in children:
+                child.pop("children", None)
+                devices.append(child)
+        return {"success": True, "devices": devices}
     except json.JSONDecodeError:
         return {"success": False, "error": "Failed to parse lsblk output"}
 
