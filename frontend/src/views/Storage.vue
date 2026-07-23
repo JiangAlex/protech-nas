@@ -357,7 +357,7 @@ async function createPartition() {
 
 async function deletePartition(name) {
   await ElMessageBox.confirm(`確定刪除分割區 /dev/${name}？資料將無法恢復！`, '警告', { type: 'error' })
-  await api.delete(`/api/storage/partition/${name}`)
+  await api.delete(`/api/storage/partition/dev/${name}`)
   ElMessage.success('分割區已刪除')
   loadData()
 }
