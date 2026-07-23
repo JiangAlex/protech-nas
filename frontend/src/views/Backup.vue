@@ -72,10 +72,19 @@
           <el-input v-model="form.destination" placeholder="/backup/daily" />
         </el-form-item>
         <el-form-item label="排程">
-          <el-input v-model="form.schedule" placeholder="0 2 * * * (cron 格式，留空為手動)" />
+          <el-switch v-model="form.scheduleEnabled" active-text="啟用" inactive-text="手動" style="margin-right:12px;" />
+          <template v-if="form.scheduleEnabled">
+            <el-time-picker v-model="form.scheduleTime" format="hh:mm A" value-format="HH:mm" placeholder="選擇時間" style="width:150px; margin-right:8px;" />
+            <el-select v-model="form.scheduleFreq" style="width:130px;">
+              <el-option value="daily" label="每天" />
+              <el-option value="weekly" label="每週日" />
+              <el-option value="monthly" label="每月 1 號" />
+            </el-select>
+          </template>
         </el-form-item>
         <el-form-item label="保留天數">
-          <el-input-number v-model="form.retention_days" :min="1" :max="365" />
+          <el-switch v-model="form.autoCleanup" active-text="自動清理" inactive-text="不自動清理" style="margin-right:12px;" />
+          <el-input-number v-if="form.autoCleanup" v-model="form.retention_days" :min="1" :max="3650" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -145,7 +154,11 @@ const isEditing = ref(false)
 const editingTaskId = ref(null)
 const saveLoading = ref(false)
 const taskFormRef = ref(null)
-const form = reactive({ name: '', source: '', destination: '', schedule: '', retention_days: 30 })
+const form = reactive({
+  name: '', source: '', destination: '',
+  schedule: '', scheduleEnabled: false, scheduleTime: '02:00', scheduleFreq: 'daily',
+  retention_days: 30, autoCleanup: false,
+})
 const formRules = {
   name: [{ required: true, message: '請輸入任務名稱', trigger: 'blur' }],
   source: [{ required: true, message: '請輸入來源路徑', trigger: 'blur' }],
@@ -189,7 +202,11 @@ function openCreateDialog() {
   form.source = ''
   form.destination = ''
   form.schedule = ''
+  form.scheduleEnabled = false
+  form.scheduleTime = '02:00'
+  form.scheduleFreq = 'daily'
   form.retention_days = 30
+  form.autoCleanup = false
   taskDialogVisible.value = true
 }
 
@@ -201,7 +218,25 @@ function openEditDialog(row) {
   form.source = row.source
   form.destination = row.destination
   form.schedule = row.schedule || ''
+
+  // Parse cron back to time picker
+  if (row.schedule) {
+    const parts = row.schedule.split(' ')
+    if (parts.length === 5) {
+      form.scheduleEnabled = true
+      form.scheduleTime = `${parts[1].padStart(2, '0')}:${parts[0].padStart(2, '0')}`
+      if (parts[4] === '0') form.scheduleFreq = 'weekly'
+      else if (parts[2] === '1' && parts[3] === '*') form.scheduleFreq = 'monthly'
+      else form.scheduleFreq = 'daily'
+    }
+  } else {
+    form.scheduleEnabled = false
+    form.scheduleTime = '02:00'
+    form.scheduleFreq = 'daily'
+  }
+
   form.retention_days = row.retention_days || 30
+  form.autoCleanup = row.retention_days > 0
   taskDialogVisible.value = true
 }
 
@@ -211,12 +246,23 @@ async function saveTask() {
   if (!valid) return
   saveLoading.value = true
   try {
+    // Convert time picker to cron format
+    let schedule = ''
+    if (form.scheduleEnabled && form.scheduleTime) {
+      const [hour, minute] = form.scheduleTime.split(':')
+      const h = parseInt(hour)
+      const m = parseInt(minute)
+      if (form.scheduleFreq === 'daily') schedule = `${m} ${h} * * *`
+      else if (form.scheduleFreq === 'weekly') schedule = `${m} ${h} * * 0`
+      else if (form.scheduleFreq === 'monthly') schedule = `${m} ${h} 1 * *`
+    }
+
     const body = {
       name: form.name,
       source: form.source,
       destination: form.destination,
-      schedule: form.schedule,
-      retention_days: form.retention_days,
+      schedule: schedule,
+      retention_days: form.autoCleanup ? form.retention_days : 0,
     }
     if (isEditing.value) {
       await api.put(`/api/backup/tasks/${editingTaskId.value}`, body)
