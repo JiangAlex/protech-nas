@@ -68,7 +68,7 @@ def get_status() -> dict:
 
     # Parse peers
     peers = []
-    peer_map = data.get("Peer", {})
+    peer_map = data.get("Peer") or {}
     for key, p in peer_map.items():
         peers.append({
             "hostname": p.get("HostName", ""),
