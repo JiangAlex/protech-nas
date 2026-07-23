@@ -246,7 +246,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 
@@ -296,6 +296,7 @@ const tsExitNode = ref('')
 const tsExitNodeOptions = ref([])
 const tsSshEnabled = ref(false)
 const tsSshLoading = ref(false)
+let tsAuthPollTimer = null
 
 // --- DDNS ---
 async function loadDDNS() {
@@ -491,12 +492,36 @@ async function tsConnect() {
     if (res.data.auth_url) {
       tsAuthUrl.value = res.data.auth_url
       ElMessage.info('請開啟連結完成認證')
+      // Start polling for auth completion
+      startAuthPoll()
     } else {
       ElMessage.success('Tailscale 已連線')
+      loadTailscale()
     }
-    loadTailscale()
   } catch { /* handled */ }
   finally { tsLoading.value = false }
+}
+
+function startAuthPoll() {
+  stopAuthPoll()
+  tsAuthPollTimer = setInterval(async () => {
+    try {
+      const res = await api.get('/api/remote/tailscale/status')
+      if (res.data.running) {
+        stopAuthPoll()
+        tsAuthUrl.value = ''
+        ElMessage.success('Tailscale 已連線')
+        loadTailscale()
+      }
+    } catch { /* ignore */ }
+  }, 3000)
+}
+
+function stopAuthPoll() {
+  if (tsAuthPollTimer) {
+    clearInterval(tsAuthPollTimer)
+    tsAuthPollTimer = null
+  }
 }
 
 async function tsDisconnect() {
@@ -537,4 +562,5 @@ async function setExitNode() {
 }
 
 onMounted(() => { loadDDNS(); loadSSL(); loadVPN(); loadProxyRules(); loadTailscale() })
+onUnmounted(() => { stopAuthPoll() })
 </script>
