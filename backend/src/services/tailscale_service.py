@@ -110,6 +110,21 @@ def tailscale_up(options: dict = None) -> dict:
     Returns:
         {"success": bool, "message": str, "auth_url": str | None}
     """
+    # First check if we need authentication by checking current status
+    rc_status, out_status, _ = _run(["tailscale", "status", "--json"])
+    needs_auth = False
+    if rc_status != 0:
+        needs_auth = True
+    else:
+        try:
+            import json as _json
+            status_data = _json.loads(out_status)
+            backend_state = status_data.get("BackendState", "")
+            if backend_state in ("NeedsLogin", "NoState"):
+                needs_auth = True
+        except Exception:
+            needs_auth = True
+
     cmd = ["sudo", "tailscale", "up"]
 
     if options:
@@ -126,19 +141,32 @@ def tailscale_up(options: dict = None) -> dict:
         if options.get("reset"):
             cmd.append("--reset")
 
-    rc, out, err = _run(cmd, timeout=30)
+    # Use short timeout to avoid blocking — tailscale up will print auth URL and exit with error
+    rc, out, err = _run(cmd, timeout=10)
 
     # tailscale up may return auth URL
     auth_url = None
     combined = out + err
     for line in combined.split("\n"):
-        if "https://login.tailscale.com/" in line or "https://login.tailscale.com" in line:
+        if "https://login.tailscale.com" in line:
             # Extract URL
             parts = line.split()
             for part in parts:
                 if part.startswith("https://"):
                     auth_url = part
                     break
+
+    # If timed out but no URL found, check tailscale status for auth URL
+    if not auth_url and (rc != 0 or rc == -1):
+        rc2, out2, _ = _run(["tailscale", "status"], timeout=5)
+        combined2 = out2
+        for line in combined2.split("\n"):
+            if "https://login.tailscale.com" in line:
+                parts = line.split()
+                for part in parts:
+                    if part.startswith("https://"):
+                        auth_url = part
+                        break
 
     if rc == 0:
         return {"success": True, "message": "Tailscale connected", "auth_url": auth_url}
