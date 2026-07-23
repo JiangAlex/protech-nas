@@ -43,7 +43,7 @@ nas ALL=(ALL) NOPASSWD: /usr/sbin/netplan, /sbin/ip
 nas ALL=(ALL) NOPASSWD: /usr/sbin/iptables, /usr/sbin/nft
 
 # Shares — Samba
-nas ALL=(ALL) NOPASSWD: /usr/sbin/smbd, /usr/bin/smbpasswd, /usr/bin/testparm
+nas ALL=(ALL) NOPASSWD: /usr/sbin/smbd, /usr/bin/smbpasswd, /usr/bin/testparm, /usr/bin/smbstatus, /usr/bin/tee
 
 # Shares — NFS
 nas ALL=(ALL) NOPASSWD: /usr/sbin/exportfs
