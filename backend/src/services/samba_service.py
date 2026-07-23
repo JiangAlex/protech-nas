@@ -7,9 +7,30 @@ from pathlib import Path
 SMB_CONF = "/etc/samba/smb.conf"
 
 
+def _sudo_run(cmd: list[str], timeout: int = 30) -> tuple[int, str, str]:
+    """Run a command with sudo."""
+    try:
+        r = subprocess.run(["sudo"] + cmd, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, r.stdout, r.stderr
+    except Exception as e:
+        return -1, "", str(e)
+
+
+def _write_smb_conf(content: str) -> bool:
+    """Write content to smb.conf using sudo tee."""
+    try:
+        p = subprocess.run(
+            ["sudo", "tee", SMB_CONF],
+            input=content, capture_output=True, text=True, timeout=10
+        )
+        return p.returncode == 0
+    except Exception:
+        return False
+
+
 def _restart_smbd():
     """Restart Samba service."""
-    subprocess.run(["systemctl", "restart", "smbd"], capture_output=True)
+    subprocess.run(["sudo", "systemctl", "restart", "smbd"], capture_output=True)
 
 
 def list_smb_shares() -> dict:
@@ -62,8 +83,10 @@ def add_smb_share(config: dict) -> dict:
     block += "   directory mask = 0775\n"
 
     try:
-        with open(SMB_CONF, "a") as f:
-            f.write(block)
+        # Read existing content and append
+        existing = Path(SMB_CONF).read_text() if Path(SMB_CONF).exists() else ""
+        if not _write_smb_conf(existing + block):
+            return {"success": False, "error": "Failed to write smb.conf (permission denied)"}
         _restart_smbd()
         return {"success": True, "message": f"Share [{name}] created"}
     except Exception as e:
@@ -94,7 +117,8 @@ def remove_smb_share(name: str) -> dict:
             new_lines.append(line)
 
     try:
-        Path(SMB_CONF).write_text("\n".join(new_lines))
+        if not _write_smb_conf("\n".join(new_lines)):
+            return {"success": False, "error": "Failed to write smb.conf (permission denied)"}
         _restart_smbd()
         return {"success": True, "message": f"Share [{name}] removed"}
     except Exception as e:
@@ -157,12 +181,13 @@ def update_smb_share(name: str, config: dict) -> dict:
     new_lines = lines[:section_start] + new_section + lines[section_end:]
 
     try:
-        Path(SMB_CONF).write_text("\n".join(new_lines))
+        if not _write_smb_conf("\n".join(new_lines)):
+            return {"success": False, "error": "Failed to write smb.conf (permission denied)"}
         # Validate config before restarting
-        rc = subprocess.run(["testparm", "-s", "--suppress-prompt"], capture_output=True).returncode
+        rc = subprocess.run(["sudo", "testparm", "-s", "--suppress-prompt"], capture_output=True).returncode
         if rc != 0:
             # Rollback
-            Path(SMB_CONF).write_text(content)
+            _write_smb_conf(content)
             return {"success": False, "error": "Invalid smb.conf syntax after update. Changes rolled back."}
         _restart_smbd()
         return {"success": True, "message": f"Share [{name}] updated"}
@@ -277,7 +302,7 @@ def set_share_acl(name: str, acl: list[dict]) -> dict:
 
         prefix = "u" if entry_type == "user" else "g"
         r = subprocess.run(
-            ["setfacl", "-m", f"{prefix}:{entry_name}:{perms}", share_path],
+            ["sudo", "setfacl", "-m", f"{prefix}:{entry_name}:{perms}", share_path],
             capture_output=True, text=True
         )
         if r.returncode != 0:
@@ -300,7 +325,7 @@ def get_smb_status() -> dict:
 
     connections = []
     if running:
-        r = subprocess.run(["smbstatus", "-b", "--no-header"], capture_output=True, text=True)
+        r = subprocess.run(["sudo", "smbstatus", "-b", "--no-header"], capture_output=True, text=True)
         if r.returncode == 0:
             for line in r.stdout.strip().split("\n"):
                 parts = line.split()
