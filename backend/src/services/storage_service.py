@@ -151,7 +151,7 @@ def format_disk(device: str, fs_type: str) -> dict:
     # exfat: mkfs.exfat has no force flag needed
     cmd.append(device)
 
-    rc, out, err_msg = _run(cmd)
+    rc, out, err_msg = _sudo_run(cmd)
     if rc != 0:
         return {"success": False, "error": f"Format failed: {err_msg.strip()}"}
 
