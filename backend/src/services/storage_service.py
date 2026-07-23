@@ -273,3 +273,141 @@ def run_smart_test(device: str, test_type: str = "short") -> dict:
         }
 
     return {"success": False, "error": f"Failed to start test: {err_msg.strip() or out.strip()}"}
+
+
+# ─── fstab Management ─────────────────────────────────────────────────────────
+
+def get_fstab() -> dict:
+    """Parse /etc/fstab and return entries."""
+    try:
+        entries = []
+        with open("/etc/fstab", "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) >= 4:
+                    entries.append({
+                        "device": parts[0],
+                        "mount": parts[1],
+                        "fs": parts[2],
+                        "options": parts[3] if len(parts) > 3 else "defaults",
+                        "dump": int(parts[4]) if len(parts) > 4 else 0,
+                        "pass": int(parts[5]) if len(parts) > 5 else 0,
+                    })
+        return {"success": True, "entries": entries}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def add_fstab_entry(device: str, mount: str, fs: str, options: str = "defaults") -> dict:
+    """Add an entry to /etc/fstab."""
+    if not device or not mount or not fs:
+        return {"success": False, "error": "device, mount, and fs are required"}
+
+    # Check for duplicate mount point
+    current = get_fstab()
+    if current["success"]:
+        for entry in current["entries"]:
+            if entry["mount"] == mount:
+                return {"success": False, "error": f"Mount point {mount} already exists in fstab"}
+
+    line = f"{device}\t{mount}\t{fs}\t{options}\t0\t2\n"
+    try:
+        rc, _, err = _sudo_run(["bash", "-c", f"echo '{line.strip()}' >> /etc/fstab"])
+        if rc != 0:
+            return {"success": False, "error": err.strip()}
+        return {"success": True, "message": f"Added {mount} to fstab"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def remove_fstab_entry(mount: str) -> dict:
+    """Remove an entry from /etc/fstab by mount point."""
+    if not mount:
+        return {"success": False, "error": "mount is required"}
+    if mount in ("/", "/boot", "/boot/efi"):
+        return {"success": False, "error": f"Cannot remove system mount point: {mount}"}
+
+    try:
+        # Use sed to remove the line matching the mount point
+        escaped = mount.replace("/", "\\/")
+        rc, _, err = _sudo_run(["sed", "-i", f"/\\s{escaped}\\s/d", "/etc/fstab"])
+        if rc != 0:
+            return {"success": False, "error": err.strip()}
+        return {"success": True, "message": f"Removed {mount} from fstab"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ─── Usage History ────────────────────────────────────────────────────────────
+
+def get_usage_history(days: int = 30) -> dict:
+    """Get disk usage history. Returns current snapshot since no DB collection is running yet."""
+    # Without a background collection job, return current usage as a single data point
+    try:
+        from datetime import datetime
+        rc, out, err = _run(["df", "--output=source,used,pcent,target", "-B1"])
+        if rc != 0:
+            return {"success": True, "history": []}
+
+        history = []
+        now = datetime.now().isoformat()
+        lines = out.strip().split("\n")
+        for line in lines[1:]:
+            parts = line.split()
+            if len(parts) >= 4 and parts[0].startswith("/dev/"):
+                used_bytes = int(parts[1]) if parts[1].isdigit() else 0
+                percent_str = parts[2].replace("%", "")
+                percent = float(percent_str) if percent_str.replace(".", "").isdigit() else 0
+                history.append({
+                    "timestamp": now,
+                    "device": parts[0],
+                    "used_gb": round(used_bytes / (1024**3), 2),
+                    "percent": percent,
+                })
+        return {"success": True, "history": history}
+    except Exception as e:
+        return {"success": True, "history": []}
+
+
+# ─── Partition Management ─────────────────────────────────────────────────────
+
+def create_partition(device: str, size: str, part_type: str = "primary") -> dict:
+    """Create a partition on a disk."""
+    err = _validate_device(device)
+    if err:
+        return {"success": False, "error": err}
+    if not size:
+        return {"success": False, "error": "size is required"}
+    if part_type not in ("primary", "logical"):
+        return {"success": False, "error": "part_type must be 'primary' or 'logical'"}
+
+    rc, out, err_msg = _sudo_run(["parted", "-s", device, "mkpart", part_type, "0%", size])
+    if rc != 0:
+        return {"success": False, "error": f"Failed: {err_msg.strip()}"}
+    return {"success": True, "partition": f"{device}1", "message": f"Partition created on {device}"}
+
+
+def delete_partition(device: str) -> dict:
+    """Delete a partition."""
+    if not device:
+        return {"success": False, "error": "device is required"}
+    # Extract disk and partition number
+    import re
+    m = re.match(r"^(/dev/sd[b-z])(\d+)$", device)
+    if not m:
+        return {"success": False, "error": f"Invalid partition path: {device}"}
+    disk = m.group(1)
+    part_num = m.group(2)
+
+    # Check not mounted
+    rc, out, _ = _run(["findmnt", "-n", "-o", "TARGET", device])
+    if rc == 0 and out.strip():
+        return {"success": False, "error": f"Partition {device} is mounted at {out.strip()}. Unmount first."}
+
+    rc, _, err_msg = _sudo_run(["parted", "-s", disk, "rm", part_num])
+    if rc != 0:
+        return {"success": False, "error": f"Failed: {err_msg.strip()}"}
+    return {"success": True, "message": f"Partition {device} deleted"}

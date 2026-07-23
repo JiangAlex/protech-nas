@@ -6,7 +6,9 @@ from typing import Optional
 from ..auth import get_current_user
 from ..services.storage_service import (
     list_disks, list_mounts, get_raid_status, mount_disk, unmount_disk,
-    format_disk, get_smart_info, run_smart_test
+    format_disk, get_smart_info, run_smart_test,
+    get_fstab, add_fstab_entry, remove_fstab_entry,
+    get_usage_history, create_partition, delete_partition
 )
 
 router = APIRouter(prefix="/api/storage", tags=["storage"])
@@ -90,6 +92,79 @@ async def post_smart_test(device: str, req: SmartTestRequest, user=Depends(get_c
     if not device.startswith("/"):
         device = f"/{device}"
     result = run_smart_test(device, req.test_type)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+# ─── fstab ────────────────────────────────────────────────────────────────────
+
+
+class FstabEntry(BaseModel):
+    device: str
+    mount: str
+    fs: str
+    options: str = "defaults"
+
+
+@router.get("/fstab")
+async def get_fstab_entries(user=Depends(get_current_user)):
+    """Get /etc/fstab entries."""
+    result = get_fstab()
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/fstab")
+async def post_fstab(req: FstabEntry, user=Depends(get_current_user)):
+    """Add an entry to /etc/fstab."""
+    result = add_fstab_entry(req.device, req.mount, req.fs, req.options)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.delete("/fstab")
+async def del_fstab(mount: str, user=Depends(get_current_user)):
+    """Remove an entry from /etc/fstab by mount point."""
+    result = remove_fstab_entry(mount)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+# ─── Usage History ────────────────────────────────────────────────────────────
+
+@router.get("/usage/history")
+async def get_usage(days: int = 30, user=Depends(get_current_user)):
+    """Get disk usage history."""
+    return get_usage_history(days)
+
+
+# ─── Partition ────────────────────────────────────────────────────────────────
+
+class PartitionRequest(BaseModel):
+    device: str
+    size: str
+    part_type: str = "primary"
+
+
+@router.post("/partition")
+async def post_partition(req: PartitionRequest, user=Depends(get_current_user)):
+    """Create a partition."""
+    result = create_partition(req.device, req.size, req.part_type)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.delete("/partition/{device:path}")
+async def del_partition(device: str, user=Depends(get_current_user)):
+    """Delete a partition."""
+    if not device.startswith("/"):
+        device = f"/{device}"
+    result = delete_partition(device)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
