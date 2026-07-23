@@ -60,6 +60,9 @@ nas ALL=(ALL) NOPASSWD: /usr/bin/certbot
 # Remote — Reverse proxy
 nas ALL=(ALL) NOPASSWD: /usr/sbin/nginx
 
+# Backup — Directory creation
+nas ALL=(ALL) NOPASSWD: /usr/bin/mkdir, /usr/bin/chown
+
 # Backup — Btrfs snapshots
 nas ALL=(ALL) NOPASSWD: /sbin/btrfs
 
