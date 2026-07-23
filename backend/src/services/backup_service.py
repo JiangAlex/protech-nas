@@ -120,9 +120,9 @@ def create_backup_task(config: dict) -> dict:
         if len(parts) != 5:
             return {"success": False, "error": f"Invalid cron schedule: {schedule}. Expected 5 fields."}
 
-    # Validate retention
-    if not isinstance(retention_days, int) or retention_days < 1:
-        return {"success": False, "error": "retention_days must be a positive integer"}
+    # Validate retention (0 = no auto-cleanup)
+    if not isinstance(retention_days, int) or retention_days < 0:
+        return {"success": False, "error": "retention_days must be 0 (no cleanup) or a positive integer"}
 
     # Create task
     task_id = str(uuid.uuid4())[:8]
