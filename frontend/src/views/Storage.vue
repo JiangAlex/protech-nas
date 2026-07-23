@@ -270,14 +270,22 @@ const diskDevices = computed(() =>
   disks.value.filter(d => d.type === 'disk').map(d => `/dev/${d.name}`)
 )
 
+// Detect system disk (the disk that has a partition mounted on /)
+const systemDiskName = computed(() => {
+  const rootPart = disks.value.find(d => d.mountpoint === '/')
+  if (!rootPart) return ''
+  // sdb2 -> sdb, nvme0n1p2 -> nvme0n1
+  return rootPart.name.replace(/p?\d+$/, '')
+})
+
 const formatableDevices = computed(() =>
   disks.value
-    .filter(d => (d.type === 'part' || d.type === 'disk') && !d.mountpoint)
+    .filter(d => (d.type === 'part' || d.type === 'disk') && !d.mountpoint && !d.name.startsWith(systemDiskName.value))
     .map(d => `/dev/${d.name}`)
 )
 
 const wholeDiskDevices = computed(() =>
-  disks.value.filter(d => d.type === 'disk').map(d => `/dev/${d.name}`)
+  disks.value.filter(d => d.type === 'disk' && d.name !== systemDiskName.value).map(d => `/dev/${d.name}`)
 )
 
 const partitions = computed(() =>
