@@ -431,11 +431,16 @@ def delete_partition(device: str) -> dict:
         return {"success": False, "error": "device is required"}
     # Extract disk and partition number
     import re
-    m = re.match(r"^(/dev/sd[b-z])(\d+)$", device)
+    m = re.match(r"^(/dev/sd[a-z])(\d+)$", device)
     if not m:
         return {"success": False, "error": f"Invalid partition path: {device}"}
     disk = m.group(1)
     part_num = m.group(2)
+
+    # Block system disk
+    sys_disk = _get_system_disk()
+    if disk == sys_disk:
+        return {"success": False, "error": f"Cannot delete partition on system disk ({sys_disk})"}
 
     # Check not mounted
     rc, out, _ = _run(["findmnt", "-n", "-o", "TARGET", device])
