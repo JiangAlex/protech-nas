@@ -143,8 +143,12 @@ def create_backup_task(config: dict) -> dict:
     tasks.append(task)
     _save_tasks(tasks)
 
-    # Ensure destination directory exists
-    os.makedirs(destination, exist_ok=True)
+    # Ensure destination directory exists (use sudo for paths outside home)
+    try:
+        os.makedirs(destination, exist_ok=True)
+    except PermissionError:
+        subprocess.run(["sudo", "mkdir", "-p", destination], capture_output=True)
+        subprocess.run(["sudo", "chown", f"{os.getenv('USER', 'root')}:{os.getenv('USER', 'root')}", destination], capture_output=True)
 
     return {"success": True, "task_id": task_id}
 
