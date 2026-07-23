@@ -62,7 +62,7 @@
           <el-table-column prop="mountpoint" label="掛載點" />
           <el-table-column label="操作" width="100">
             <template #default="{ row }">
-              <el-button type="danger" size="small" :disabled="row.name === 'sda1'" @click="deletePartition(row.name)">刪除</el-button>
+              <el-button type="danger" size="small" :disabled="!!row.mountpoint" @click="deletePartition(row.name)">刪除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -272,12 +272,12 @@ const diskDevices = computed(() =>
 
 const formatableDevices = computed(() =>
   disks.value
-    .filter(d => (d.type === 'part' || d.type === 'disk') && !d.mountpoint && d.name !== 'sda')
+    .filter(d => (d.type === 'part' || d.type === 'disk') && !d.mountpoint)
     .map(d => `/dev/${d.name}`)
 )
 
 const wholeDiskDevices = computed(() =>
-  disks.value.filter(d => d.type === 'disk' && d.name !== 'sda').map(d => `/dev/${d.name}`)
+  disks.value.filter(d => d.type === 'disk').map(d => `/dev/${d.name}`)
 )
 
 const partitions = computed(() =>
