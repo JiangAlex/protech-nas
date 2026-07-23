@@ -32,7 +32,7 @@
       <el-tab-pane label="防火牆">
         <el-button type="primary" @click="fwDialogVisible = true" style="margin-bottom:12px;">新增規則</el-button>
         <el-button @click="loadFirewall" style="margin-bottom:12px;">重新整理</el-button>
-        <el-table :data="fwRules" stripe v-loading="fwLoading">
+        <el-table :data="fwRules_data" stripe v-loading="fwLoading">
           <el-table-column prop="id" label="#" width="50" />
           <el-table-column prop="chain" label="Chain" width="90" />
           <el-table-column prop="protocol" label="協定" width="80" />
