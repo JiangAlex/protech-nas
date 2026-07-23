@@ -1,5 +1,5 @@
 /**
- * Global keyboard shortcuts for ProTech NAS.
+ * Global keyboard shortcuts for SoftSnail NAS.
  *
  * Ctrl+K: Focus global search (placeholder for future)
  * Ctrl+U: Navigate to Files (upload)

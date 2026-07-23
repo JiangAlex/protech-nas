@@ -2,7 +2,7 @@
   <el-container style="height: 100vh;">
     <el-aside :width="isCollapsed ? '64px' : '200px'" style="background: #304156; transition: width 0.3s;">
       <div style="padding: 16px; text-align: center; color: #fff; font-size: 18px; font-weight: bold; white-space: nowrap; overflow: hidden;">
-        {{ isCollapsed ? 'P' : 'ProTech NAS' }}
+        {{ isCollapsed ? 'S' : 'SoftSnail NAS' }}
       </div>
       <el-menu
         :default-active="route.path"

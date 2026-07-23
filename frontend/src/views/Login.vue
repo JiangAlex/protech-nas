@@ -2,7 +2,7 @@
   <div class="login-container">
     <el-card class="login-card">
       <template #header>
-        <h2 style="text-align: center; margin: 0;">ProTech NAS</h2>
+        <h2 style="text-align: center; margin: 0;">SoftSnail NAS</h2>
       </template>
       <el-form ref="formRef" :model="form" :rules="rules" @submit.prevent="handleLogin" label-width="0">
         <el-form-item prop="username">
