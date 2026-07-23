@@ -182,6 +182,12 @@
           <el-button type="danger" :loading="tsLoading" @click="tsLogout" :disabled="!ts.running">登出</el-button>
         </div>
 
+        <!-- Tailscale SSH -->
+        <el-card header="Tailscale SSH" style="margin-bottom:16px;" v-if="ts.installed && ts.running">
+          <el-switch v-model="tsSshEnabled" :loading="tsSshLoading" active-text="啟用" inactive-text="停用" @change="toggleSsh" />
+          <el-text type="info" size="small" style="margin-left:12px;">啟用後可透過 Tailscale 身分認證直接 SSH，不需密碼或金鑰</el-text>
+        </el-card>
+
         <!-- Auth URL -->
         <el-alert v-if="tsAuthUrl" type="info" :closable="true" style="margin-bottom:16px;" @close="tsAuthUrl = ''">
           需要認證，請開啟此連結登入：<br>
@@ -288,6 +294,8 @@ const tsAuthUrl = ref('')
 const tsRoutes = ref('')
 const tsExitNode = ref('')
 const tsExitNodeOptions = ref([])
+const tsSshEnabled = ref(false)
+const tsSshLoading = ref(false)
 
 // --- DDNS ---
 async function loadDDNS() {
@@ -450,10 +458,29 @@ async function loadTailscale() {
     // Set current exit node
     const activeExit = ts.peers.find(p => p.exit_node)
     tsExitNode.value = activeExit ? activeExit.ip : ''
+    // Load SSH status
+    if (ts.running) {
+      try {
+        const sshRes = await api.get('/api/remote/tailscale/ssh')
+        tsSshEnabled.value = sshRes.data.ssh_enabled || false
+      } catch { tsSshEnabled.value = false }
+    }
   } catch {
     ts.loaded = true
     ts.installed = false
   }
+}
+
+async function toggleSsh(val) {
+  tsSshLoading.value = true
+  try {
+    await api.put('/api/remote/tailscale/ssh', { enabled: val })
+    ElMessage.success(val ? 'Tailscale SSH 已啟用' : 'Tailscale SSH 已停用')
+  } catch {
+    // Revert switch on failure
+    tsSshEnabled.value = !val
+  }
+  finally { tsSshLoading.value = false }
 }
 
 async function tsConnect() {

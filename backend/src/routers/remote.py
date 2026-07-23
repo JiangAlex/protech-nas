@@ -189,6 +189,8 @@ from ..services.tailscale_service import (
     set_exit_node as ts_set_exit_node,
     set_advertise_routes as ts_set_routes,
     get_ip as ts_get_ip,
+    set_ssh as ts_set_ssh,
+    get_ssh_status as ts_get_ssh_status,
 )
 
 
@@ -207,6 +209,10 @@ class TailscaleExitNodeRequest(BaseModel):
 
 class TailscaleRoutesRequest(BaseModel):
     routes: str = ""
+
+
+class TailscaleSSHRequest(BaseModel):
+    enabled: bool
 
 
 @router.get("/tailscale/status")
@@ -265,3 +271,19 @@ async def put_tailscale_routes(data: TailscaleRoutesRequest, user=Depends(get_cu
 async def get_tailscale_ip(user=Depends(get_current_user)):
     """Get Tailscale IP addresses."""
     return ts_get_ip()
+
+
+@router.get("/tailscale/ssh")
+async def get_tailscale_ssh(user=Depends(get_current_user)):
+    """Get Tailscale SSH status."""
+    enabled = ts_get_ssh_status()
+    return {"success": True, "ssh_enabled": enabled}
+
+
+@router.put("/tailscale/ssh")
+async def put_tailscale_ssh(data: TailscaleSSHRequest, user=Depends(get_current_user)):
+    """Enable or disable Tailscale SSH."""
+    result = ts_set_ssh(data.enabled)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", ""))
+    return result

@@ -236,3 +236,37 @@ def get_ip() -> dict:
             ipv4 = line
 
     return {"success": True, "ipv4": ipv4, "ipv6": ipv6}
+
+
+def set_ssh(enabled: bool) -> dict:
+    """Enable or disable Tailscale SSH.
+
+    Args:
+        enabled: True to enable, False to disable.
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    flag = "--ssh" if enabled else "--ssh=false"
+    rc, out, err = _run(["sudo", "tailscale", "set", flag])
+    if rc == 0:
+        state = "啟用" if enabled else "停用"
+        return {"success": True, "message": f"Tailscale SSH 已{state}"}
+    return {"success": False, "error": err.strip() or "Failed to set SSH"}
+
+
+def get_ssh_status() -> bool:
+    """Check if Tailscale SSH is enabled.
+
+    Returns:
+        bool: True if SSH is enabled.
+    """
+    rc, out, err = _run(["tailscale", "debug", "prefs"])
+    if rc != 0:
+        return False
+    try:
+        import json
+        prefs = json.loads(out)
+        return prefs.get("RunSSH", False)
+    except (json.JSONDecodeError, ValueError):
+        return False
