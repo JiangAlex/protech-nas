@@ -62,7 +62,7 @@
           <el-table-column prop="mountpoint" label="掛載點" />
           <el-table-column label="操作" width="100">
             <template #default="{ row }">
-              <el-button type="danger" size="small" :disabled="!!row.mountpoint" @click="deletePartition(row.name)">刪除</el-button>
+              <el-button type="danger" size="small" :disabled="row.mountpoint && row.mountpoint !== ''" @click="deletePartition(row.name)">刪除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -289,7 +289,7 @@ const wholeDiskDevices = computed(() =>
 )
 
 const partitions = computed(() =>
-  disks.value.filter(d => d.type === 'part')
+  disks.value.filter(d => d.type === 'part' && !d.name.startsWith(systemDiskName.value))
 )
 
 const availableSpares = computed(() =>
