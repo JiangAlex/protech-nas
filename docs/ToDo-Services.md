@@ -1039,12 +1039,13 @@
 |------|------|
 | 優先級 | 🟡 中 |
 | 參數 | 無 |
-| 回傳 | `{"success": bool, "upgradable_count": int, "packages": list[{"name": str, "current": str, "available": str}]}` |
-| 底層工具 | `apt update -qq` → `apt list --upgradable` |
-| 權限 | root（apt update） |
+| 回傳 | `{"success": bool, "current_version": str, "latest_version": str, "has_update": bool, "release_notes": str, "published_at": str}` |
+| 底層工具 | GitHub API `https://api.github.com/repos/JiangAlex/protech-nas/releases/latest`；本機版本讀取自 `src/main.py` version 或 `VERSION` 檔案 |
+| 權限 | 無（唯讀） |
 | 風險 | 無（只檢查不安裝） |
-| 錯誤情境 | 無網路、apt lock |
-| 測試策略 | mock output |
+| 錯誤情境 | 無網路、GitHub API rate limit、repo 為 private 需 token |
+| 測試策略 | mock GitHub API response |
+| 備註 | ⚠️ 此為 ProTech NAS 系統自身更新，非 Ubuntu apt 更新 |
 
 ---
 
@@ -1053,13 +1054,14 @@
 | 項目 | 內容 |
 |------|------|
 | 優先級 | 🟡 中 |
-| 參數 | `packages: list[str] | None` — None 表示全部更新 |
-| 回傳 | `{"success": bool, "updated_count": int, "message": str}` |
-| 底層工具 | `apt upgrade -y` 或 `apt install --only-upgrade {packages}` |
-| 權限 | root |
-| 風險 | ⚠️ 中 — 可能需要重啟；更新失敗可能影響系統穩定 |
-| 錯誤情境 | apt lock、空間不足、套件相依衝突 |
+| 參數 | `target_version: str | None` — None 表示更新到最新版 |
+| 回傳 | `{"success": bool, "updated_to": str, "message": str, "restart_required": bool}` |
+| 底層工具 | `git fetch` → `git checkout {tag}` → `pip install -r requirements.txt` → 通知前端重啟 |
+| 權限 | 需為 backend 執行使用者（git repo owner） |
+| 風險 | ⚠️ 中 — 更新後需重啟 backend；若版本有 breaking change 可能影響服務 |
+| 錯誤情境 | git 衝突（有本地修改）、pip 安裝失敗、磁碟空間不足 |
 | 測試策略 | mock（不可在 CI 實際更新） |
+| 備註 | ⚠️ 此為 ProTech NAS 系統自身更新，非 Ubuntu apt 更新。更新流程：<br>1. `git fetch --tags`<br>2. `git checkout {tag}`<br>3. `pip install -r requirements.txt`<br>4. 回傳 restart_required=true，由前端提示使用者重啟服務 |
 
 ---
 
