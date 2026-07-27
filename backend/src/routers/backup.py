@@ -114,6 +114,14 @@ async def put_schedule(task_id: str, data: ScheduleRequest, user=Depends(get_cur
 # ─── Snapshots ───────────────────────────────────────────────────────────────
 
 
+@router.get("/scheduler")
+async def get_scheduler_status(user=Depends(get_current_user)):
+    """Get backup scheduler status and registered jobs."""
+    from ..scheduler import get_scheduled_jobs
+    jobs = get_scheduled_jobs()
+    return {"success": True, "jobs": jobs}
+
+
 class SnapshotCreate(BaseModel):
     subvol: str
 

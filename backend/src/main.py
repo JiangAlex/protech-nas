@@ -36,8 +36,16 @@ async def lifespan(app: FastAPI):
     # Import models so Base.metadata knows all tables
     import src.models  # noqa: F401
     await init_db()
+
+    # Start backup scheduler
+    from .scheduler import start_scheduler, shutdown_scheduler
+    start_scheduler()
+
     logger.info("app_started", version="0.1.0")
     yield
+
+    # Shutdown scheduler gracefully
+    shutdown_scheduler()
     logger.info("app_shutdown")
 
 

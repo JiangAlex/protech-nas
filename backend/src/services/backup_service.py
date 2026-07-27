@@ -150,6 +150,11 @@ def create_backup_task(config: dict) -> dict:
         subprocess.run(["sudo", "mkdir", "-p", destination], capture_output=True)
         subprocess.run(["sudo", "chown", f"{os.getenv('USER', 'root')}:{os.getenv('USER', 'root')}", destination], capture_output=True)
 
+    # Register schedule with APScheduler
+    if schedule:
+        from ..scheduler import add_backup_job
+        add_backup_job(task_id, schedule)
+
     return {"success": True, "task_id": task_id}
 
 
@@ -318,6 +323,16 @@ def update_backup_task(task_id: str, config: dict) -> dict:
             return {"success": False, "error": f"Invalid cron schedule: {config['schedule']}"}
 
     _save_tasks(tasks)
+
+    # Update scheduler if schedule changed
+    if "schedule" in config:
+        from ..scheduler import add_backup_job, remove_backup_job
+        new_schedule = config["schedule"].strip() if config["schedule"] else ""
+        if new_schedule:
+            add_backup_job(task_id, new_schedule)
+        else:
+            remove_backup_job(task_id)
+
     return {"success": True, "message": f"Task {task_id} updated"}
 
 
@@ -338,6 +353,11 @@ def delete_backup_task(task_id: str) -> dict:
         return {"success": False, "error": f"Task {task_id} not found"}
 
     _save_tasks(tasks)
+
+    # Remove from scheduler
+    from ..scheduler import remove_backup_job
+    remove_backup_job(task_id)
+
     return {"success": True, "message": f"Task {task_id} deleted (backup data preserved)"}
 
 
@@ -457,6 +477,13 @@ def schedule_backup(task_id: str, cron_expr: str) -> dict:
 
     task["schedule"] = cron_expr
     _save_tasks(tasks)
+
+    # Update scheduler
+    from ..scheduler import add_backup_job, remove_backup_job
+    if cron_expr:
+        add_backup_job(task_id, cron_expr)
+    else:
+        remove_backup_job(task_id)
 
     # Calculate next run (simplified)
     if cron_expr:
