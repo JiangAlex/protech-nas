@@ -134,8 +134,26 @@ class CronJobCreate(BaseModel):
 
 @router.get("/cron")
 async def get_cron_jobs(user=Depends(get_current_user)):
-    """List all cron jobs."""
-    return list_cron_jobs()
+    """List all cron jobs (system crontab + APScheduler backup tasks)."""
+    result = list_cron_jobs()
+    if not result["success"]:
+        return result
+
+    # Append APScheduler backup jobs
+    try:
+        from ..scheduler import get_scheduled_jobs
+        for job in get_scheduled_jobs():
+            result["jobs"].append({
+                "id": job["job_id"],
+                "schedule": job["trigger"].replace("cron[", "").replace("]", ""),
+                "command": f"[備份任務] task_id={job['task_id']}",
+                "user": "apscheduler",
+                "next_run": job["next_run_time"],
+            })
+    except Exception:
+        pass  # Scheduler not started yet
+
+    return result
 
 
 @router.post("/cron")
