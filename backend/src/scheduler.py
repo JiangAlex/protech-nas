@@ -32,7 +32,17 @@ def start_scheduler():
 
     scheduler = get_scheduler()
 
-    # Load existing backup tasks
+    # ─── Metrics recording (every 60 seconds) ─────────────────────────────────
+    from apscheduler.triggers.interval import IntervalTrigger
+    scheduler.add_job(
+        _record_metrics,
+        trigger=IntervalTrigger(seconds=60),
+        id="metrics_recorder",
+        name="System metrics recorder",
+        replace_existing=True,
+    )
+
+    # ─── Backup tasks ─────────────────────────────────────────────────────────
     result = list_backup_tasks()
     if result["success"]:
         for task in result["tasks"]:
@@ -164,3 +174,13 @@ def _execute_backup(task_id: str):
             task_id=task_id,
             error=result.get("error"),
         )
+
+
+def _record_metrics():
+    """Callback: record system metrics (runs every 60s in scheduler thread)."""
+    from .services.system_service import record_metrics
+
+    try:
+        record_metrics()
+    except Exception as e:
+        logger.warning("metrics_record_failed", error=str(e))
