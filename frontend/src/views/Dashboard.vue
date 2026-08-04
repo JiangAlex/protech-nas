@@ -7,40 +7,173 @@
         <el-switch v-model="autoRefresh" active-text="自動刷新" />
       </div>
     </div>
+
+    <!-- ═══ 區塊一：核心硬件數據 ═══ -->
+    <h3 style="margin:0 0 12px 0; color:#606266;">核心硬件數據</h3>
     <el-row :gutter="16" v-if="info">
-      <el-col :span="6">
+      <!-- CPU -->
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover">
           <template #header>CPU</template>
           <el-progress type="dashboard" :percentage="info.cpu.percent" :color="progressColor" />
-          <p style="text-align:center;">{{ info.cpu.cores }} 核心 / {{ info.cpu.freq_mhz }} MHz</p>
+          <p style="text-align:center; margin:8px 0 0;">{{ info.cpu.cores }} 核心 / {{ info.cpu.freq_mhz }} MHz</p>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <!-- 記憶體 -->
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover">
           <template #header>記憶體</template>
           <el-progress type="dashboard" :percentage="info.memory.percent" :color="progressColor" />
-          <p style="text-align:center;">{{ info.memory.used_gb }} / {{ info.memory.total_gb }} GB</p>
+          <p style="text-align:center; margin:8px 0 0;">{{ info.memory.used_gb }} / {{ info.memory.total_gb }} GB</p>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <!-- 網路速率 -->
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover">
-          <template #header>磁碟</template>
-          <el-progress type="dashboard" :percentage="info.disk.percent" :color="progressColor" />
-          <p style="text-align:center;">{{ info.disk.used_gb }} / {{ info.disk.total_gb }} GB</p>
+          <template #header>網路速率</template>
+          <div style="text-align:center; padding:16px 0;">
+            <div style="margin-bottom:12px;">
+              <span style="color:#67c23a; font-size:20px;">↑</span>
+              <span style="font-size:24px; font-weight:bold;">{{ formatRate(info.network.upload_kb_s) }}</span>
+            </div>
+            <div>
+              <span style="color:#409eff; font-size:20px;">↓</span>
+              <span style="font-size:24px; font-weight:bold;">{{ formatRate(info.network.download_kb_s) }}</span>
+            </div>
+          </div>
+          <p style="text-align:center; font-size:12px; color:#909399; margin:0;">
+            累計 ↑{{ info.network.bytes_sent_mb }} MB / ↓{{ info.network.bytes_recv_mb }} MB
+          </p>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <!-- 磁碟 IO -->
+      <el-col :xs="12" :sm="6">
         <el-card shadow="hover">
-          <template #header>系統資訊</template>
-          <p><strong>主機：</strong>{{ info.hostname }}</p>
-          <p><strong>OS：</strong>{{ info.os }}</p>
-          <p><strong>運行時間：</strong>{{ info.uptime }}</p>
-          <p><strong>網路 ↑：</strong>{{ info.network.bytes_sent_mb }} MB</p>
-          <p><strong>網路 ↓：</strong>{{ info.network.bytes_recv_mb }} MB</p>
+          <template #header>磁碟 I/O</template>
+          <div style="text-align:center; padding:16px 0;">
+            <div style="margin-bottom:12px;">
+              <span style="color:#e6a23c; font-size:16px;">讀取</span>
+              <span style="font-size:24px; font-weight:bold; margin-left:8px;">{{ formatRate(info.disk_io.read_kb_s) }}</span>
+            </div>
+            <div>
+              <span style="color:#f56c6c; font-size:16px;">寫入</span>
+              <span style="font-size:24px; font-weight:bold; margin-left:8px;">{{ formatRate(info.disk_io.write_kb_s) }}</span>
+            </div>
+          </div>
+          <el-progress :percentage="info.disk.percent" :color="progressColor" :stroke-width="10" style="margin-top:8px;" />
+          <p style="text-align:center; font-size:12px; color:#909399; margin:4px 0 0;">
+            {{ info.disk.used_gb }} / {{ info.disk.total_gb }} GB
+          </p>
         </el-card>
       </el-col>
     </el-row>
     <el-skeleton v-else :rows="4" animated />
+
+    <!-- ═══ 區塊二：系統與服務狀態 ═══ -->
+    <h3 style="margin:20px 0 12px 0; color:#606266;">系統與服務狀態</h3>
+    <el-row :gutter="16" v-if="info">
+      <!-- RAID 狀態 -->
+      <el-col :xs="24" :sm="8">
+        <el-card shadow="hover">
+          <template #header>RAID 陣列</template>
+          <div v-if="info.raid">
+            <el-descriptions :column="1" size="small" border>
+              <el-descriptions-item label="陣列">{{ info.raid.array }}</el-descriptions-item>
+              <el-descriptions-item label="等級">{{ info.raid.level }}</el-descriptions-item>
+              <el-descriptions-item label="狀態">
+                <el-tag :type="info.raid.degraded ? 'danger' : 'success'" size="small">
+                  {{ info.raid.degraded ? '降級' : '正常' }} [{{ info.raid.health }}]
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="裝置">{{ info.raid.active_devices }} / {{ info.raid.total_devices }}</el-descriptions-item>
+            </el-descriptions>
+            <div v-if="info.raid.rebuild" style="margin-top:8px;">
+              <el-progress :percentage="Math.round(info.raid.rebuild.percent)" status="warning" :stroke-width="12" />
+              <p style="font-size:12px; color:#e6a23c; margin:4px 0 0;">重建中，預計 {{ Math.round(info.raid.rebuild.finish_min) }} 分鐘</p>
+            </div>
+          </div>
+          <div v-else style="color:#909399; text-align:center; padding:20px 0;">
+            無 RAID 陣列
+          </div>
+        </el-card>
+      </el-col>
+
+      <!-- 溫度 -->
+      <el-col :xs="24" :sm="8">
+        <el-card shadow="hover">
+          <template #header>溫度監控</template>
+          <div v-if="Object.keys(info.temperatures || {}).length > 0">
+            <div v-for="(temp, label) in info.temperatures" :key="label" style="margin-bottom:8px;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:13px;">{{ label }}</span>
+                <span :style="{ color: temp.current > 70 ? '#f56c6c' : temp.current > 50 ? '#e6a23c' : '#67c23a', fontWeight: 'bold' }">
+                  {{ temp.current }}°C
+                </span>
+              </div>
+              <el-progress
+                :percentage="Math.min(100, Math.round((temp.current / (temp.critical || 100)) * 100))"
+                :color="temp.current > 70 ? '#f56c6c' : temp.current > 50 ? '#e6a23c' : '#67c23a'"
+                :stroke-width="6"
+                :show-text="false"
+              />
+            </div>
+          </div>
+          <div v-else style="color:#909399; text-align:center; padding:20px 0;">
+            未偵測到溫度感測器<br><span style="font-size:12px;">安裝 lm-sensors 啟用</span>
+          </div>
+        </el-card>
+      </el-col>
+
+      <!-- Docker -->
+      <el-col :xs="24" :sm="8">
+        <el-card shadow="hover">
+          <template #header>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span>Docker 容器</span>
+              <el-tag size="small" type="info">{{ info.docker.total }} 個</el-tag>
+            </div>
+          </template>
+          <div v-if="info.docker.total > 0">
+            <div style="display:flex; gap:16px; margin-bottom:12px;">
+              <div style="text-align:center;">
+                <div style="font-size:24px; font-weight:bold; color:#67c23a;">{{ info.docker.running }}</div>
+                <div style="font-size:12px; color:#909399;">運行中</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="font-size:24px; font-weight:bold; color:#909399;">{{ info.docker.stopped }}</div>
+                <div style="font-size:12px; color:#909399;">已停止</div>
+              </div>
+            </div>
+            <div v-for="c in info.docker.containers.slice(0, 5)" :key="c.name"
+                 style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid #f0f0f0;">
+              <span style="font-size:12px; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ c.name }}</span>
+              <el-tag :type="c.running ? 'success' : 'info'" size="small">{{ c.running ? '運行' : '停止' }}</el-tag>
+            </div>
+            <p v-if="info.docker.total > 5" style="font-size:12px; color:#909399; margin:8px 0 0; text-align:center;">
+              ... 還有 {{ info.docker.total - 5 }} 個容器
+            </p>
+          </div>
+          <div v-else style="color:#909399; text-align:center; padding:20px 0;">
+            無 Docker 容器
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- 系統資訊 -->
+    <el-row :gutter="16" style="margin-top:16px;" v-if="info">
+      <el-col :span="24">
+        <el-card shadow="hover">
+          <template #header>系統資訊</template>
+          <el-descriptions :column="4" border size="small">
+            <el-descriptions-item label="主機名稱">{{ info.hostname }}</el-descriptions-item>
+            <el-descriptions-item label="作業系統">{{ info.os }}</el-descriptions-item>
+            <el-descriptions-item label="架構">{{ info.arch }}</el-descriptions-item>
+            <el-descriptions-item label="運行時間">{{ info.uptime }}</el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+      </el-col>
+    </el-row>
 
     <!-- History Chart -->
     <el-card style="margin-top:20px;" shadow="hover" v-if="historyData.length > 0">
@@ -100,6 +233,12 @@ const progressColor = [
   { color: '#e6a23c', percentage: 80 },
   { color: '#f56c6c', percentage: 100 },
 ]
+
+function formatRate(kb) {
+  if (kb == null) return '0 KB/s'
+  if (kb >= 1024) return `${(kb / 1024).toFixed(1)} MB/s`
+  return `${Math.round(kb)} KB/s`
+}
 
 async function fetchData() {
   try {

@@ -79,13 +79,20 @@ def list_directory(path: str) -> dict:
             for entry in entries:
                 try:
                     stat = entry.stat(follow_symlinks=False)
-                    items.append({
+                    item = {
                         "name": entry.name,
                         "type": "dir" if entry.is_dir(follow_symlinks=False) else "file",
                         "size": stat.st_size,
                         "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
                         "permissions": oct(stat.st_mode)[-3:],
-                    })
+                    }
+                    # For directories, count immediate children
+                    if item["type"] == "dir":
+                        try:
+                            item["children_count"] = len(os.listdir(entry.path))
+                        except (OSError, PermissionError):
+                            item["children_count"] = None
+                    items.append(item)
                 except (OSError, PermissionError):
                     # Skip files we can't stat
                     continue

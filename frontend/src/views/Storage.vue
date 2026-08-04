@@ -70,8 +70,41 @@
 
       <!-- RAID Tab -->
       <el-tab-pane label="RAID">
-        <el-button type="primary" @click="raidStep = 0; raidWizardVisible = true" style="margin-bottom:12px;">建立 RAID</el-button>
-        <pre style="background:#f5f5f5;padding:16px;border-radius:4px;white-space:pre-wrap;">{{ raid }}</pre>
+        <div style="margin-bottom:12px;">
+          <el-button type="primary" @click="raidStep = 0; raidWizardVisible = true">建立 RAID</el-button>
+          <el-button @click="loadRaidDetail">重新整理</el-button>
+          <el-button type="warning" @click="raidAddDiskVisible = true" :disabled="!raidDetail">加入磁碟</el-button>
+          <el-button type="danger" @click="raidRemoveDiskVisible = true" :disabled="!raidDetail">移除磁碟</el-button>
+          <el-button type="danger" plain @click="stopRaidArray" :disabled="!raidDetail">停止陣列</el-button>
+          <el-button type="success" plain @click="assembleRaidArray">組裝陣列</el-button>
+        </div>
+
+        <!-- RAID Detail -->
+        <div v-if="raidDetail" style="margin-bottom:16px;">
+          <el-descriptions :column="3" border title="RAID 陣列詳情">
+            <el-descriptions-item label="陣列">{{ raidDetail.array }}</el-descriptions-item>
+            <el-descriptions-item label="等級">{{ raidDetail.level }}</el-descriptions-item>
+            <el-descriptions-item label="狀態">
+              <el-tag :type="raidDetail.state?.includes('active') || raidDetail.state?.includes('clean') ? 'success' : 'warning'">{{ raidDetail.state }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="裝置數">{{ raidDetail.devices }}</el-descriptions-item>
+            <el-descriptions-item label="運作中">{{ raidDetail.active }}</el-descriptions-item>
+            <el-descriptions-item label="失敗">
+              <span :style="{ color: raidDetail.failed > 0 ? 'red' : 'inherit' }">{{ raidDetail.failed }}</span>
+            </el-descriptions-item>
+          </el-descriptions>
+          <el-table :data="raidDetail.disks" stripe style="margin-top:12px;" size="small">
+            <el-table-column prop="device" label="裝置" />
+            <el-table-column prop="state" label="狀態">
+              <template #default="{ row }">
+                <el-tag :type="row.state?.includes('active') ? 'success' : row.state?.includes('spare') ? 'info' : 'danger'" size="small">{{ row.state }}</el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+        <div v-else>
+          <pre style="background:#f5f5f5;padding:16px;border-radius:4px;white-space:pre-wrap;">{{ raid || '無 RAID 陣列' }}</pre>
+        </div>
       </el-tab-pane>
 
       <!-- fstab Tab -->
@@ -200,6 +233,43 @@
       </template>
     </el-dialog>
 
+    <!-- RAID Add Disk Dialog -->
+    <el-dialog v-model="raidAddDiskVisible" title="加入磁碟到 RAID 陣列" width="420px">
+      <el-form label-width="80px">
+        <el-form-item label="陣列">
+          <el-input v-model="raidDiskForm.array" disabled />
+        </el-form-item>
+        <el-form-item label="磁碟">
+          <el-select v-model="raidDiskForm.device" placeholder="選擇磁碟">
+            <el-option v-for="d in formatableDevices" :key="d" :label="d" :value="d" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="raidAddDiskVisible = false">取消</el-button>
+        <el-button type="primary" :loading="raidDiskLoading" @click="addDiskToRaid">加入</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- RAID Remove Disk Dialog -->
+    <el-dialog v-model="raidRemoveDiskVisible" title="從 RAID 陣列移除磁碟" width="420px">
+      <el-alert type="warning" :closable="false" style="margin-bottom:12px;">移除磁碟後陣列將降級，請確保有備份或備用碟。</el-alert>
+      <el-form label-width="80px">
+        <el-form-item label="陣列">
+          <el-input v-model="raidDiskForm.array" disabled />
+        </el-form-item>
+        <el-form-item label="磁碟">
+          <el-select v-model="raidDiskForm.device" placeholder="選擇要移除的磁碟">
+            <el-option v-for="d in raidMemberDisks" :key="d.device" :label="`${d.device} (${d.state})`" :value="d.device" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="raidRemoveDiskVisible = false">取消</el-button>
+        <el-button type="danger" :loading="raidDiskLoading" @click="removeDiskFromRaid">移除</el-button>
+      </template>
+    </el-dialog>
+
     <!-- fstab Dialog -->
     <el-dialog v-model="fstabDialogVisible" title="新增 fstab 項目" width="480px">
       <el-form :model="fstabForm" label-width="100px">
@@ -253,6 +323,15 @@ const raidWizardVisible = ref(false)
 const raidStep = ref(0)
 const raidCreating = ref(false)
 const raidForm = reactive({ level: 1, devices: [], spare: [] })
+
+// RAID Detail & Management
+const raidDetail = ref(null)
+const raidAddDiskVisible = ref(false)
+const raidRemoveDiskVisible = ref(false)
+const raidDiskLoading = ref(false)
+const raidDiskForm = reactive({ array: '/dev/md0', device: '' })
+
+const raidMemberDisks = computed(() => raidDetail.value?.disks || [])
 
 // fstab
 const fstabDialogVisible = ref(false)
@@ -363,21 +442,78 @@ async function deletePartition(name) {
 }
 
 // --- RAID ---
+async function loadRaidDetail() {
+  try {
+    const res = await api.get('/api/storage/raid/detail', { params: { array: '/dev/md0' } })
+    raidDetail.value = res.data
+  } catch {
+    raidDetail.value = null
+  }
+}
+
 async function createRaid() {
   raidCreating.value = true
   try {
     await api.post('/api/storage/raid/create', {
-      name: 'md0',
-      level: raidForm.level,
+      level: String(raidForm.level),
       devices: raidForm.devices,
-      spare: raidForm.spare,
+      array: '/dev/md0',
+      filesystem: 'ext4',
+      mount_point: '/mnt/nas-data',
     })
     ElMessage.success('RAID 陣列已建立')
     raidWizardVisible.value = false
     raidForm.devices = []; raidForm.spare = []
     loadData()
+    loadRaidDetail()
   } catch { /* handled */ }
   finally { raidCreating.value = false }
+}
+
+async function addDiskToRaid() {
+  if (!raidDiskForm.device) { ElMessage.warning('請選擇磁碟'); return }
+  raidDiskLoading.value = true
+  try {
+    const res = await api.post('/api/storage/raid/add-disk', raidDiskForm)
+    ElMessage.success(res.data.message || '磁碟已加入')
+    raidAddDiskVisible.value = false
+    raidDiskForm.device = ''
+    loadRaidDetail()
+  } catch { /* handled */ }
+  finally { raidDiskLoading.value = false }
+}
+
+async function removeDiskFromRaid() {
+  if (!raidDiskForm.device) { ElMessage.warning('請選擇磁碟'); return }
+  await ElMessageBox.confirm(`確定從 ${raidDiskForm.array} 移除 ${raidDiskForm.device}？陣列將降級！`, '警告', { type: 'error' })
+  raidDiskLoading.value = true
+  try {
+    const res = await api.post('/api/storage/raid/remove-disk', raidDiskForm)
+    ElMessage.success(res.data.message || '磁碟已移除')
+    raidRemoveDiskVisible.value = false
+    raidDiskForm.device = ''
+    loadRaidDetail()
+  } catch { /* handled */ }
+  finally { raidDiskLoading.value = false }
+}
+
+async function stopRaidArray() {
+  await ElMessageBox.confirm('確定停止 RAID 陣列？陣列將無法存取直到重新組裝。', '停止 RAID', { type: 'error' })
+  try {
+    await api.post('/api/storage/raid/stop', { array: '/dev/md0' })
+    ElMessage.success('RAID 陣列已停止')
+    raidDetail.value = null
+    loadData()
+  } catch { /* handled */ }
+}
+
+async function assembleRaidArray() {
+  try {
+    const res = await api.post('/api/storage/raid/assemble', { array: '/dev/md0' })
+    ElMessage.success(res.data.message || 'RAID 已組裝')
+    loadRaidDetail()
+    loadData()
+  } catch { /* handled */ }
 }
 
 // --- fstab ---
@@ -420,5 +556,5 @@ async function loadUsageHistory() {
   finally { usageLoading.value = false }
 }
 
-onMounted(() => { loadData(); loadFstab(); loadUsageHistory() })
+onMounted(() => { loadData(); loadFstab(); loadUsageHistory(); loadRaidDetail() })
 </script>

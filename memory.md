@@ -53,6 +53,22 @@ Browser → Nginx(:80)
 - sudoers 設定：`/etc/sudoers.d/protech-nas`（免密碼執行特權指令）
 - Backend service 以 `alex_chiang` 使用者執行（deploy.sh 會自動替換）
 
+## RAID 1 HA（高可用開機鏡像）
+
+- 2 顆 HDD → 自動偵測，建議設定 RAID 1 資料碟鏡像
+- 1 顆 HDD → 跳過，單碟模式
+- 腳本：`scripts/setup-raid1-ha.sh`（資料碟 RAID 1 設定）
+- 腳本：`scripts/migrate-to-raid1.sh`（說明線上遷移風險，建議重裝）
+- deploy.sh 會自動偵測磁碟數量並提示是否需要設定 RAID
+
+### RAID 1 管理指令
+
+```bash
+cat /proc/mdstat               # 查看 RAID 狀態
+mdadm --detail /dev/md0        # 陣列詳情
+mdadm --add /dev/md0 /dev/sdX1 # 加入新碟重建鏡像
+```
+
 ## 系統需求
 
 - OS：Debian 12 / Ubuntu 22.04+

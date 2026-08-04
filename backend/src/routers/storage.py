@@ -8,7 +8,9 @@ from ..services.storage_service import (
     list_disks, list_mounts, get_raid_status, mount_disk, unmount_disk,
     format_disk, get_smart_info, run_smart_test,
     get_fstab, add_fstab_entry, remove_fstab_entry,
-    get_usage_history, create_partition, delete_partition
+    get_usage_history, create_partition, delete_partition,
+    get_raid_detail, create_raid, add_raid_disk, remove_raid_disk,
+    stop_raid, assemble_raid
 )
 
 router = APIRouter(prefix="/api/storage", tags=["storage"])
@@ -165,6 +167,85 @@ async def del_partition(device: str, user=Depends(get_current_user)):
     if not device.startswith("/"):
         device = f"/{device}"
     result = delete_partition(device)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+# ─── RAID Management ──────────────────────────────────────────────────────────
+
+
+class CreateRaidRequest(BaseModel):
+    level: str = "1"
+    devices: list[str]
+    array: str = "/dev/md0"
+    filesystem: str = "ext4"
+    mount_point: str = ""
+
+
+class RaidDiskRequest(BaseModel):
+    array: str = "/dev/md0"
+    device: str
+
+
+class StopRaidRequest(BaseModel):
+    array: str = "/dev/md0"
+
+
+class AssembleRaidRequest(BaseModel):
+    array: str = "/dev/md0"
+    devices: Optional[list[str]] = None
+
+
+@router.get("/raid/detail")
+async def get_raid_detail_api(array: str = "/dev/md0", user=Depends(get_current_user)):
+    """Get detailed RAID array info (mdadm --detail)."""
+    result = get_raid_detail(array)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/raid/create")
+async def post_raid_create(req: CreateRaidRequest, user=Depends(get_current_user)):
+    """Create a new RAID array."""
+    result = create_raid(req.level, req.devices, req.array, req.filesystem, req.mount_point)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/raid/add-disk")
+async def post_raid_add_disk(req: RaidDiskRequest, user=Depends(get_current_user)):
+    """Add a disk to an existing RAID array."""
+    result = add_raid_disk(req.array, req.device)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/raid/remove-disk")
+async def post_raid_remove_disk(req: RaidDiskRequest, user=Depends(get_current_user)):
+    """Remove a disk from a RAID array (fail + remove)."""
+    result = remove_raid_disk(req.array, req.device)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/raid/stop")
+async def post_raid_stop(req: StopRaidRequest, user=Depends(get_current_user)):
+    """Stop (deactivate) a RAID array."""
+    result = stop_raid(req.array)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/raid/assemble")
+async def post_raid_assemble(req: AssembleRaidRequest, user=Depends(get_current_user)):
+    """Assemble (reactivate) a RAID array."""
+    result = assemble_raid(req.array, req.devices)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

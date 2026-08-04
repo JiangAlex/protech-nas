@@ -6,7 +6,7 @@ import psutil
 
 
 def get_system_info() -> dict:
-    """Get system overview: CPU, RAM, disk, network, uptime."""
+    """Get system overview: CPU, RAM, disk, network rate, disk IO, temperature, RAID, Docker."""
     # CPU
     cpu_percent = psutil.cpu_percent(interval=0.5)
     cpu_count = psutil.cpu_count()
@@ -18,8 +18,114 @@ def get_system_info() -> dict:
     # Disk usage (root partition)
     disk = psutil.disk_usage("/")
 
-    # Network I/O
+    # Network I/O (cumulative)
     net = psutil.net_io_counters()
+
+    # Network rate (per second) — sample twice
+    net1 = psutil.net_io_counters()
+    time.sleep(0.5)
+    net2 = psutil.net_io_counters()
+    net_upload_rate = round((net2.bytes_sent - net1.bytes_sent) * 2 / 1024, 1)  # KB/s
+    net_download_rate = round((net2.bytes_recv - net1.bytes_recv) * 2 / 1024, 1)  # KB/s
+
+    # Disk I/O rate
+    dio1 = psutil.disk_io_counters()
+    time.sleep(0.5)
+    dio2 = psutil.disk_io_counters()
+    if dio1 and dio2:
+        disk_read_rate = round((dio2.read_bytes - dio1.read_bytes) * 2 / 1024, 1)  # KB/s
+        disk_write_rate = round((dio2.write_bytes - dio1.write_bytes) * 2 / 1024, 1)  # KB/s
+    else:
+        disk_read_rate = 0
+        disk_write_rate = 0
+
+    # Temperature
+    temperatures = {}
+    try:
+        temps = psutil.sensors_temperatures()
+        for chip, entries in temps.items():
+            for entry in entries:
+                label = entry.label or chip
+                temperatures[label] = {
+                    "current": entry.current,
+                    "high": entry.high,
+                    "critical": entry.critical,
+                }
+    except (AttributeError, Exception):
+        pass
+
+    # RAID status
+    raid_status = None
+    try:
+        with open("/proc/mdstat", "r") as f:
+            mdstat = f.read()
+        if "md" in mdstat and "active" in mdstat:
+            import re
+            # Parse basic raid info
+            md_match = re.search(r"(md\d+)\s*:\s*active\s+(\w+)\s+(.+)", mdstat)
+            if md_match:
+                array_name = md_match.group(1)
+                raid_level = md_match.group(2)
+                members = md_match.group(3).split()
+                # Check for [UU] or [_U] etc.
+                status_match = re.search(r"\[(\d+)/(\d+)\]\s*\[([U_]+)\]", mdstat)
+                if status_match:
+                    total = int(status_match.group(1))
+                    active = int(status_match.group(2))
+                    health = status_match.group(3)
+                    degraded = "_" in health
+                else:
+                    total = len(members)
+                    active = total
+                    health = "U" * total
+                    degraded = False
+                # Check rebuild progress
+                recovery_match = re.search(r"recovery\s*=\s*([\d.]+)%.*finish=([\d.]+)min", mdstat)
+                rebuild = None
+                if recovery_match:
+                    rebuild = {
+                        "percent": float(recovery_match.group(1)),
+                        "finish_min": float(recovery_match.group(2)),
+                    }
+                raid_status = {
+                    "array": f"/dev/{array_name}",
+                    "level": raid_level,
+                    "total_devices": total,
+                    "active_devices": active,
+                    "health": health,
+                    "degraded": degraded,
+                    "rebuild": rebuild,
+                }
+    except FileNotFoundError:
+        pass
+
+    # Docker summary
+    docker_summary = {"running": 0, "stopped": 0, "total": 0, "containers": []}
+    try:
+        import subprocess as _sp
+        result = _sp.run(
+            ["docker", "ps", "-a", "--format", "{{.Names}}\t{{.Status}}\t{{.Image}}"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            for line in result.stdout.strip().split("\n"):
+                parts = line.split("\t")
+                if len(parts) >= 3:
+                    name, status, image = parts[0], parts[1], parts[2]
+                    is_running = status.startswith("Up")
+                    docker_summary["total"] += 1
+                    if is_running:
+                        docker_summary["running"] += 1
+                    else:
+                        docker_summary["stopped"] += 1
+                    docker_summary["containers"].append({
+                        "name": name,
+                        "status": status,
+                        "image": image,
+                        "running": is_running,
+                    })
+    except Exception:
+        pass
 
     # Uptime
     boot_time = psutil.boot_time()
@@ -47,10 +153,19 @@ def get_system_info() -> dict:
             "used_gb": round(disk.used / (1024**3), 2),
             "percent": disk.percent,
         },
+        "disk_io": {
+            "read_kb_s": disk_read_rate,
+            "write_kb_s": disk_write_rate,
+        },
         "network": {
             "bytes_sent_mb": round(net.bytes_sent / (1024**2), 2),
             "bytes_recv_mb": round(net.bytes_recv / (1024**2), 2),
+            "upload_kb_s": net_upload_rate,
+            "download_kb_s": net_download_rate,
         },
+        "temperatures": temperatures,
+        "raid": raid_status,
+        "docker": docker_summary,
         "uptime": f"{days}d {hours}h {minutes}m",
         "uptime_seconds": uptime_seconds,
     }

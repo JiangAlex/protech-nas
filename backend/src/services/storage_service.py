@@ -451,3 +451,274 @@ def delete_partition(device: str) -> dict:
     if rc != 0:
         return {"success": False, "error": f"Failed: {err_msg.strip()}"}
     return {"success": True, "message": f"Partition {device} deleted"}
+
+
+# ─── RAID Management ──────────────────────────────────────────────────────────
+
+_ALLOWED_RAID_LEVELS = ("1", "5", "6", "10")
+
+
+def get_raid_detail(array: str = "/dev/md0") -> dict:
+    """Get detailed RAID array info via mdadm --detail.
+
+    Returns:
+        {
+            "success": bool,
+            "array": str,
+            "level": str,
+            "state": str,
+            "devices": int,
+            "active": int,
+            "working": int,
+            "failed": int,
+            "spare": int,
+            "disks": [{"device": str, "state": str, "role": int}],
+            "raw": str
+        }
+    """
+    if not array or not re.match(r"^/dev/md\d+$", array):
+        return {"success": False, "error": f"Invalid array path: {array}"}
+
+    rc, out, err = _sudo_run(["mdadm", "--detail", array])
+    if rc != 0:
+        if "No such file" in err or "does not appear" in err:
+            return {"success": False, "error": f"Array {array} does not exist."}
+        if rc == 127:
+            return {"success": False, "error": "mdadm not installed. Install: sudo apt install mdadm"}
+        return {"success": False, "error": err.strip()}
+
+    # Parse output
+    info = {"success": True, "array": array, "raw": out, "disks": []}
+
+    for line in out.split("\n"):
+        line = line.strip()
+        if "Raid Level" in line:
+            info["level"] = line.split(":")[-1].strip()
+        elif "State :" in line or "State  :" in line:
+            info["state"] = line.split(":")[-1].strip()
+        elif "Raid Devices" in line:
+            info["devices"] = int(line.split(":")[-1].strip())
+        elif "Active Devices" in line:
+            info["active"] = int(line.split(":")[-1].strip())
+        elif "Working Devices" in line:
+            info["working"] = int(line.split(":")[-1].strip())
+        elif "Failed Devices" in line:
+            info["failed"] = int(line.split(":")[-1].strip())
+        elif "Spare Devices" in line:
+            info["spare"] = int(line.split(":")[-1].strip())
+
+    # Parse disk list (lines like: "0  8  16  0  active sync  /dev/sdb1")
+    in_disk_section = False
+    for line in out.split("\n"):
+        if "Number" in line and "Major" in line and "Minor" in line:
+            in_disk_section = True
+            continue
+        if in_disk_section and line.strip():
+            parts = line.split()
+            if len(parts) >= 7 and parts[-1].startswith("/dev/"):
+                device = parts[-1]
+                # State is everything between the number columns and device
+                state_parts = parts[4:-1]
+                state = " ".join(state_parts)
+                info["disks"].append({"device": device, "state": state})
+
+    return info
+
+
+def create_raid(level: str, devices: list[str], array: str = "/dev/md0",
+                filesystem: str = "ext4", mount_point: str = "") -> dict:
+    """Create a new RAID array.
+
+    Args:
+        level: RAID level ("1", "5", "6", "10")
+        devices: List of device paths (e.g. ["/dev/sdb1", "/dev/sdc1"])
+        array: Array device path (default: /dev/md0)
+        filesystem: Filesystem to format the array (ext4, xfs, btrfs)
+        mount_point: Optional mount point (e.g. "/mnt/nas-data")
+
+    Returns:
+        {"success": bool, "message": str, "array": str}
+    """
+    # Validate level
+    if level not in _ALLOWED_RAID_LEVELS:
+        return {"success": False, "error": f"Unsupported RAID level: {level}. Supported: {', '.join(_ALLOWED_RAID_LEVELS)}"}
+
+    # Validate device count
+    min_devices = {"1": 2, "5": 3, "6": 4, "10": 4}
+    if len(devices) < min_devices[level]:
+        return {"success": False, "error": f"RAID {level} requires at least {min_devices[level]} devices, got {len(devices)}."}
+
+    # Validate array path
+    if not re.match(r"^/dev/md\d+$", array):
+        return {"success": False, "error": f"Invalid array path: {array}"}
+
+    # Check if array already exists
+    rc, _, _ = _sudo_run(["mdadm", "--detail", array])
+    if rc == 0:
+        return {"success": False, "error": f"Array {array} already exists. Stop it first."}
+
+    # Validate each device
+    sys_disk = _get_system_disk()
+    for dev in devices:
+        if not re.match(r"^/dev/(sd[a-z]\d*|nvme\d+n\d+(p\d+)?)$", dev):
+            return {"success": False, "error": f"Invalid device: {dev}"}
+        # Block system disk
+        if dev.startswith(sys_disk):
+            return {"success": False, "error": f"Device {dev} is on the system disk. Blocked."}
+        # Check not mounted
+        rc, out, _ = _run(["findmnt", "-n", "-o", "TARGET", dev])
+        if rc == 0 and out.strip():
+            return {"success": False, "error": f"Device {dev} is mounted at {out.strip()}. Unmount first."}
+
+    # Create the RAID array
+    cmd = [
+        "mdadm", "--create", array,
+        "--level", level,
+        "--raid-devices", str(len(devices)),
+        "--metadata=1.2",
+        "--run",
+    ] + devices
+
+    rc, out, err = _sudo_run(cmd, timeout=120)
+    if rc != 0:
+        return {"success": False, "error": f"mdadm --create failed: {err.strip()}"}
+
+    result = {"success": True, "message": f"RAID {level} array {array} created with {len(devices)} devices.", "array": array}
+
+    # Format if requested
+    if filesystem and filesystem in _SUPPORTED_FS:
+        fmt_cmd = [f"mkfs.{filesystem}"]
+        if filesystem in ("ext4", "xfs", "btrfs"):
+            fmt_cmd.append("-f" if filesystem in ("xfs", "btrfs") else "-F")
+        fmt_cmd.append(array)
+        rc2, _, err2 = _sudo_run(fmt_cmd, timeout=300)
+        if rc2 != 0:
+            result["warning"] = f"Array created but format failed: {err2.strip()}"
+        else:
+            result["message"] += f" Formatted as {filesystem}."
+
+    # Mount if requested
+    if mount_point and filesystem:
+        _sudo_run(["mkdir", "-p", mount_point])
+        rc3, _, err3 = _sudo_run(["mount", array, mount_point])
+        if rc3 == 0:
+            result["message"] += f" Mounted at {mount_point}."
+            result["mount_point"] = mount_point
+        else:
+            result["warning"] = result.get("warning", "") + f" Mount failed: {err3.strip()}"
+
+    # Save mdadm config
+    _sudo_run(["bash", "-c", "mdadm --detail --scan >> /etc/mdadm/mdadm.conf"])
+    _sudo_run(["update-initramfs", "-u"], timeout=120)
+
+    return result
+
+
+def add_raid_disk(array: str, device: str) -> dict:
+    """Add a disk to an existing RAID array (for rebuilding or adding spare).
+
+    Args:
+        array: Array device (e.g. "/dev/md0")
+        device: Device to add (e.g. "/dev/sdd1")
+    """
+    if not re.match(r"^/dev/md\d+$", array):
+        return {"success": False, "error": f"Invalid array: {array}"}
+
+    err = _validate_device(device)
+    if err:
+        return {"success": False, "error": err}
+
+    # Check device not mounted
+    rc, out, _ = _run(["findmnt", "-n", "-o", "TARGET", device])
+    if rc == 0 and out.strip():
+        return {"success": False, "error": f"Device {device} is mounted at {out.strip()}. Unmount first."}
+
+    # Check array exists
+    rc, _, err_msg = _sudo_run(["mdadm", "--detail", array])
+    if rc != 0:
+        return {"success": False, "error": f"Array {array} does not exist."}
+
+    # Add disk
+    rc, out, err_msg = _sudo_run(["mdadm", "--add", array, device])
+    if rc != 0:
+        return {"success": False, "error": f"Failed to add {device}: {err_msg.strip()}"}
+
+    return {"success": True, "message": f"Added {device} to {array}. Rebuild will start automatically."}
+
+
+def remove_raid_disk(array: str, device: str) -> dict:
+    """Remove (fail + remove) a disk from a RAID array.
+
+    Args:
+        array: Array device (e.g. "/dev/md0")
+        device: Device to remove (e.g. "/dev/sdb1")
+    """
+    if not re.match(r"^/dev/md\d+$", array):
+        return {"success": False, "error": f"Invalid array: {array}"}
+
+    if not device or not re.match(r"^/dev/(sd[a-z]\d*|nvme\d+n\d+(p\d+)?)$", device):
+        return {"success": False, "error": f"Invalid device: {device}"}
+
+    # Mark as faulty first
+    rc, _, err_msg = _sudo_run(["mdadm", "--fail", array, device])
+    if rc != 0:
+        return {"success": False, "error": f"Failed to mark {device} as faulty: {err_msg.strip()}"}
+
+    # Remove
+    rc, _, err_msg = _sudo_run(["mdadm", "--remove", array, device])
+    if rc != 0:
+        return {"success": False, "error": f"Failed to remove {device}: {err_msg.strip()}"}
+
+    return {"success": True, "message": f"Removed {device} from {array}."}
+
+
+def stop_raid(array: str) -> dict:
+    """Stop (deactivate) a RAID array.
+
+    Args:
+        array: Array device (e.g. "/dev/md0")
+
+    WARNING: This will make the array inaccessible until reassembled.
+    """
+    if not re.match(r"^/dev/md\d+$", array):
+        return {"success": False, "error": f"Invalid array: {array}"}
+
+    # Check if mounted, unmount first
+    rc, out, _ = _run(["findmnt", "-n", "-o", "TARGET", array])
+    if rc == 0 and out.strip():
+        mount_target = out.strip()
+        rc2, _, err2 = _sudo_run(["umount", mount_target])
+        if rc2 != 0:
+            return {"success": False, "error": f"Cannot unmount {mount_target}: {err2.strip()}"}
+
+    rc, _, err_msg = _sudo_run(["mdadm", "--stop", array])
+    if rc != 0:
+        return {"success": False, "error": f"Failed to stop {array}: {err_msg.strip()}"}
+
+    return {"success": True, "message": f"Array {array} stopped."}
+
+
+def assemble_raid(array: str = "/dev/md0", devices: list[str] | None = None) -> dict:
+    """Assemble (reactivate) an existing RAID array.
+
+    Args:
+        array: Array device (e.g. "/dev/md0")
+        devices: Optional list of devices. If not provided, mdadm scans automatically.
+    """
+    if not re.match(r"^/dev/md\d+$", array):
+        return {"success": False, "error": f"Invalid array: {array}"}
+
+    cmd = ["mdadm", "--assemble", array]
+    if devices:
+        for dev in devices:
+            if not re.match(r"^/dev/(sd[a-z]\d*|nvme\d+n\d+(p\d+)?)$", dev):
+                return {"success": False, "error": f"Invalid device: {dev}"}
+        cmd += devices
+    else:
+        cmd.append("--scan")
+
+    rc, out, err_msg = _sudo_run(cmd)
+    if rc != 0:
+        return {"success": False, "error": f"Failed to assemble {array}: {err_msg.strip()}"}
+
+    return {"success": True, "message": f"Array {array} assembled successfully."}

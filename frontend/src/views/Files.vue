@@ -67,7 +67,7 @@
         </template>
       </el-table-column>
       <el-table-column prop="size" label="大小" width="120">
-        <template #default="{ row }">{{ row.type === 'dir' ? '—' : formatSize(row.size) }}</template>
+        <template #default="{ row }">{{ row.type === 'dir' ? (row.children_count != null ? row.children_count + ' 個項目' : '—') : formatSize(row.size) }}</template>
       </el-table-column>
       <el-table-column prop="modified" label="修改時間" width="180">
         <template #default="{ row }">{{ formatDate(row.modified) }}</template>

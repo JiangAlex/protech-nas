@@ -41,6 +41,21 @@ fi
 echo "  ✓ All checks passed."
 echo ""
 
+# ─── RAID 1 HA detection ─────────────────────────────────────────────────────
+DISK_COUNT=$(lsblk -d -n -o NAME,TYPE | awk '$2=="disk"' | wc -l)
+if [ "$DISK_COUNT" -ge 2 ]; then
+    if [ ! -e /dev/md0 ] && ! grep -q "md0" /proc/mdstat 2>/dev/null; then
+        echo "╔══════════════════════════════════════════════════╗"
+        echo "║  ℹ 偵測到 ${DISK_COUNT} 顆磁碟，建議設定 RAID 1 (HA)    ║"
+        echo "║  執行：sudo bash scripts/setup-raid1-ha.sh       ║"
+        echo "╚══════════════════════════════════════════════════╝"
+        echo ""
+    else
+        echo "  ✓ RAID 1 (HA) already active."
+        echo ""
+    fi
+fi
+
 # ─── Step 1: Build frontend ──────────────────────────────────────────────────
 echo "[1/6] Building frontend..."
 cd "$FRONTEND_DIR"
