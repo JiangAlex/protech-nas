@@ -80,11 +80,16 @@ def get_raid_status() -> dict:
         return {"success": False, "error": str(e)}
 
 
-def mount_disk(device: str, mount_point: str, fs_type: str = "ext4") -> dict:
+def mount_disk(device: str, mount_point: str, fs_type: str = "auto") -> dict:
     """Mount a device to a mount point."""
     # Create mount point if not exists
-    _run(["mkdir", "-p", mount_point])
-    rc, out, err = _run(["mount", "-t", fs_type, device, mount_point])
+    _sudo_run(["mkdir", "-p", mount_point])
+    # Build mount command
+    if fs_type and fs_type != "auto":
+        cmd = ["mount", "-t", fs_type, device, mount_point]
+    else:
+        cmd = ["mount", device, mount_point]
+    rc, out, err = _sudo_run(cmd)
     if rc != 0:
         return {"success": False, "error": err.strip()}
     return {"success": True, "message": f"Mounted {device} to {mount_point}"}
@@ -92,7 +97,7 @@ def mount_disk(device: str, mount_point: str, fs_type: str = "ext4") -> dict:
 
 def unmount_disk(mount_point: str) -> dict:
     """Unmount a mount point."""
-    rc, out, err = _run(["umount", mount_point])
+    rc, out, err = _sudo_run(["umount", mount_point])
     if rc != 0:
         return {"success": False, "error": err.strip()}
     return {"success": True, "message": f"Unmounted {mount_point}"}

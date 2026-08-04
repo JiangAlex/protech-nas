@@ -42,6 +42,10 @@
 
       <!-- Mounts Tab -->
       <el-tab-pane label="掛載">
+        <div style="margin-bottom:12px; display:flex; gap:8px;">
+          <el-button type="primary" @click="mountDialogVisible = true">掛載裝置</el-button>
+          <el-button @click="loadData">重新整理</el-button>
+        </div>
         <el-table :data="mounts" stripe>
           <el-table-column prop="device" label="裝置" />
           <el-table-column prop="mount_point" label="掛載點" />
@@ -49,6 +53,27 @@
           <el-table-column prop="size" label="大小" />
           <el-table-column prop="used" label="已用" />
           <el-table-column prop="use_percent" label="使用率" />
+          <el-table-column label="操作" width="120">
+            <template #default="{ row }">
+              <el-button type="warning" size="small" :disabled="['/', '/boot', '/boot/efi'].includes(row.mount_point)" @click="unmountDevice(row)">卸載</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <!-- 未掛載的裝置 -->
+        <h4 style="margin-top:20px;">未掛載的裝置</h4>
+        <el-table :data="unmountedDevices" stripe empty-text="所有裝置都已掛載">
+          <el-table-column prop="name" label="裝置">
+            <template #default="{ row }"><code>/dev/{{ row.name }}</code></template>
+          </el-table-column>
+          <el-table-column prop="size" label="大小" />
+          <el-table-column prop="fstype" label="檔案系統" />
+          <el-table-column prop="model" label="型號" />
+          <el-table-column label="操作" width="120">
+            <template #default="{ row }">
+              <el-button type="primary" size="small" :disabled="!row.fstype" @click="quickMount(row)">掛載</el-button>
+            </template>
+          </el-table-column>
         </el-table>
       </el-tab-pane>
 
@@ -233,6 +258,35 @@
       </template>
     </el-dialog>
 
+    <!-- Mount Dialog -->
+    <el-dialog v-model="mountDialogVisible" title="掛載裝置" width="450px">
+      <el-form :model="mountForm" label-width="100px">
+        <el-form-item label="裝置">
+          <el-select v-model="mountForm.device" placeholder="選擇裝置">
+            <el-option v-for="d in unmountedDevices" :key="d.name" :label="`/dev/${d.name} (${d.size} ${d.fstype || '未格式化'})`" :value="`/dev/${d.name}`" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="掛載點">
+          <el-input v-model="mountForm.mount_point" placeholder="/mnt/usb-hd" />
+        </el-form-item>
+        <el-form-item label="檔案系統">
+          <el-select v-model="mountForm.fs_type">
+            <el-option value="auto" label="自動偵測" />
+            <el-option value="ext4" label="ext4" />
+            <el-option value="xfs" label="XFS" />
+            <el-option value="btrfs" label="Btrfs" />
+            <el-option value="ntfs" label="NTFS" />
+            <el-option value="exfat" label="exFAT" />
+            <el-option value="vfat" label="FAT32" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="mountDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="mountLoading" @click="doMount">掛載</el-button>
+      </template>
+    </el-dialog>
+
     <!-- RAID Add Disk Dialog -->
     <el-dialog v-model="raidAddDiskVisible" title="加入磁碟到 RAID 陣列" width="420px">
       <el-form label-width="80px">
@@ -332,6 +386,51 @@ const raidDiskLoading = ref(false)
 const raidDiskForm = reactive({ array: '/dev/md0', device: '' })
 
 const raidMemberDisks = computed(() => raidDetail.value?.disks || [])
+
+// Mount/Unmount
+const mountDialogVisible = ref(false)
+const mountLoading = ref(false)
+const mountForm = reactive({ device: '', mount_point: '', fs_type: 'auto' })
+
+const unmountedDevices = computed(() =>
+  disks.value.filter(d =>
+    (d.type === 'part' || (d.type === 'disk' && d.fstype)) &&
+    !d.mountpoint &&
+    !d.name.startsWith(systemDiskName.value)
+  )
+)
+
+async function doMount() {
+  if (!mountForm.device || !mountForm.mount_point) {
+    ElMessage.warning('請填寫裝置和掛載點')
+    return
+  }
+  mountLoading.value = true
+  try {
+    await api.post('/api/storage/mount', mountForm)
+    ElMessage.success(`已掛載 ${mountForm.device} → ${mountForm.mount_point}`)
+    mountDialogVisible.value = false
+    mountForm.device = ''; mountForm.mount_point = ''; mountForm.fs_type = 'auto'
+    loadData()
+  } catch { /* handled */ }
+  finally { mountLoading.value = false }
+}
+
+async function quickMount(row) {
+  mountForm.device = `/dev/${row.name}`
+  mountForm.mount_point = `/mnt/${row.name}`
+  mountForm.fs_type = row.fstype || 'auto'
+  mountDialogVisible.value = true
+}
+
+async function unmountDevice(row) {
+  await ElMessageBox.confirm(`確定卸載 ${row.device}（${row.mount_point}）？`, '卸載裝置', { type: 'warning' })
+  try {
+    await api.post('/api/storage/unmount', { device: row.device, mount_point: row.mount_point })
+    ElMessage.success(`已卸載 ${row.mount_point}`)
+    loadData()
+  } catch { /* handled */ }
+}
 
 // fstab
 const fstabDialogVisible = ref(false)
