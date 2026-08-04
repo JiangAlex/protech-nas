@@ -393,11 +393,21 @@ const mountLoading = ref(false)
 const mountForm = reactive({ device: '', mount_point: '', fs_type: 'auto' })
 
 const unmountedDevices = computed(() =>
-  disks.value.filter(d =>
-    (d.type === 'part' || (d.type === 'disk' && d.fstype)) &&
-    !d.mountpoint &&
-    !d.name.startsWith(systemDiskName.value)
-  )
+  disks.value.filter(d => {
+    // Skip system disk
+    if (d.name.startsWith(systemDiskName.value)) return false
+    // Skip already mounted
+    if (d.mountpoint) return false
+    // Include partitions without mount
+    if (d.type === 'part') return true
+    // Include whole disks that have no children (partitions) listed
+    if (d.type === 'disk') {
+      const hasPartitions = disks.value.some(p => p.type === 'part' && p.name.startsWith(d.name))
+      // Show disk if it has a filesystem directly, OR if it has no partitions (unpartitioned disk)
+      return d.fstype || !hasPartitions
+    }
+    return false
+  })
 )
 
 async function doMount() {
