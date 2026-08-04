@@ -1,5 +1,6 @@
 """System service — collects system info via psutil."""
 
+import os
 import platform
 import time
 import psutil
@@ -737,3 +738,133 @@ def get_metrics_history(hours: int = 24) -> dict:
     filtered = [m for m in metrics if m.get("timestamp", "") >= cutoff]
 
     return {"success": True, "data": filtered}
+
+
+# ─── Fan Control ──────────────────────────────────────────────────────────────
+
+import glob as _glob
+
+
+def get_fans() -> dict:
+    """Get fan speeds and PWM status.
+
+    Returns:
+        {
+            "success": bool,
+            "fans": [{
+                "id": int,
+                "rpm": int,
+                "pwm": int (0-255),
+                "percent": int (0-100),
+                "mode": str ("manual" | "auto" | "off"),
+                "hwmon": str
+            }]
+        }
+    """
+    fans = []
+    # Find all hwmon devices with fan inputs
+    for fan_path in sorted(_glob.glob("/sys/class/hwmon/*/fan*_input")):
+        try:
+            hwmon_dir = fan_path.rsplit("/", 1)[0]
+            fan_file = fan_path.rsplit("/", 1)[1]
+            fan_num = fan_file.replace("fan", "").replace("_input", "")
+
+            # Read RPM
+            with open(fan_path) as f:
+                rpm = int(f.read().strip())
+
+            # Read PWM if available
+            pwm_path = f"{hwmon_dir}/pwm{fan_num}"
+            pwm_enable_path = f"{hwmon_dir}/pwm{fan_num}_enable"
+            pwm = None
+            mode = "unknown"
+            if os.path.exists(pwm_path):
+                with open(pwm_path) as f:
+                    pwm = int(f.read().strip())
+                if os.path.exists(pwm_enable_path):
+                    with open(pwm_enable_path) as f:
+                        enable_val = int(f.read().strip())
+                        mode = {0: "off", 1: "manual", 2: "auto"}.get(enable_val, "unknown")
+
+            # Read hwmon name
+            name_path = f"{hwmon_dir}/name"
+            hwmon_name = ""
+            if os.path.exists(name_path):
+                with open(name_path) as f:
+                    hwmon_name = f.read().strip()
+
+            fans.append({
+                "id": int(fan_num),
+                "rpm": rpm,
+                "pwm": pwm,
+                "percent": round(pwm / 255 * 100) if pwm is not None else None,
+                "mode": mode,
+                "hwmon": hwmon_name,
+            })
+        except (OSError, ValueError):
+            continue
+
+    return {"success": True, "fans": fans}
+
+
+def set_fan_speed(fan_id: int, percent: int) -> dict:
+    """Set fan speed manually (0-100%).
+
+    Args:
+        fan_id: Fan number (1, 2, 3...)
+        percent: Speed percentage (0-100). 0 = minimum, 100 = full speed.
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    if percent < 0 or percent > 100:
+        return {"success": False, "error": "percent must be 0-100"}
+
+    # Find the correct hwmon path
+    pwm_path = None
+    enable_path = None
+    for path in _glob.glob(f"/sys/class/hwmon/*/pwm{fan_id}"):
+        pwm_path = path
+        enable_path = f"{path}_enable"
+        break
+
+    if not pwm_path or not os.path.exists(pwm_path):
+        return {"success": False, "error": f"Fan {fan_id} PWM control not found"}
+
+    pwm_value = round(percent * 255 / 100)
+
+    # Set to manual mode first
+    rc, _, err = _sudo_run(["bash", "-c", f"echo 1 > {enable_path}"])
+    if rc != 0:
+        return {"success": False, "error": f"Failed to set manual mode: {err.strip()}"}
+
+    # Set PWM value
+    rc, _, err = _sudo_run(["bash", "-c", f"echo {pwm_value} > {pwm_path}"])
+    if rc != 0:
+        return {"success": False, "error": f"Failed to set PWM: {err.strip()}"}
+
+    return {"success": True, "message": f"Fan {fan_id} set to {percent}% ({pwm_value}/255)"}
+
+
+def set_fan_auto(fan_id: int) -> dict:
+    """Set fan back to automatic (temperature-controlled) mode.
+
+    Args:
+        fan_id: Fan number (1, 2, 3...)
+
+    Returns:
+        {"success": bool, "message": str}
+    """
+    enable_path = None
+    for path in _glob.glob(f"/sys/class/hwmon/*/pwm{fan_id}_enable"):
+        enable_path = path
+        break
+
+    if not enable_path or not os.path.exists(enable_path):
+        return {"success": False, "error": f"Fan {fan_id} PWM control not found"}
+
+    rc, _, err = _sudo_run(["bash", "-c", f"echo 2 > {enable_path}"])
+    if rc != 0:
+        return {"success": False, "error": f"Failed to set auto mode: {err.strip()}"}
+
+    return {"success": True, "message": f"Fan {fan_id} set to automatic mode"}

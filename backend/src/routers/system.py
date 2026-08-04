@@ -8,7 +8,8 @@ from ..services.system_service import (
     get_system_logs, power_action, get_temperatures,
     list_services, control_service, update_system_settings, get_hardware_info,
     check_updates, apply_updates,
-    list_cron_jobs, add_cron_job, remove_cron_job, record_metrics, get_metrics_history
+    list_cron_jobs, add_cron_job, remove_cron_job, record_metrics, get_metrics_history,
+    get_fans, set_fan_speed, set_fan_auto
 )
 
 router = APIRouter(prefix="/api/system", tags=["system"])
@@ -192,6 +193,42 @@ async def post_record_metrics(user=Depends(get_current_user)):
 async def get_dashboard_history(hours: int = Query(24, ge=1, le=720), user=Depends(get_current_user)):
     """Get historical system metrics."""
     result = get_metrics_history(hours=hours)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+# ─── Fan Control ──────────────────────────────────────────────────────────────
+
+
+class FanSpeedRequest(BaseModel):
+    fan_id: int
+    percent: int
+
+
+class FanAutoRequest(BaseModel):
+    fan_id: int
+
+
+@router.get("/fans")
+async def get_fan_status(user=Depends(get_current_user)):
+    """Get all fan speeds and PWM status."""
+    return get_fans()
+
+
+@router.post("/fans/speed")
+async def post_fan_speed(req: FanSpeedRequest, user=Depends(get_current_user)):
+    """Set fan speed manually (0-100%)."""
+    result = set_fan_speed(req.fan_id, req.percent)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/fans/auto")
+async def post_fan_auto(req: FanAutoRequest, user=Depends(get_current_user)):
+    """Set fan back to automatic mode."""
+    result = set_fan_auto(req.fan_id)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

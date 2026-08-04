@@ -121,6 +121,24 @@
           <div v-else style="color:#909399; text-align:center; padding:20px 0;">
             未偵測到溫度感測器<br><span style="font-size:12px;">安裝 lm-sensors 啟用</span>
           </div>
+
+          <!-- Fan Control -->
+          <div v-if="fans.length > 0" style="margin-top:16px; border-top:1px solid #ebeef5; padding-top:12px;">
+            <h4 style="margin:0 0 8px 0; font-size:13px; color:#606266;">風扇控制</h4>
+            <div v-for="fan in fans" :key="fan.id" style="margin-bottom:12px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <span style="font-size:12px;">風扇 {{ fan.id }}</span>
+                <span style="font-size:12px; color:#909399;">{{ fan.rpm }} RPM
+                  <el-tag :type="fan.mode === 'auto' ? 'success' : fan.mode === 'manual' ? 'warning' : 'info'" size="small" style="margin-left:4px;">{{ fan.mode === 'auto' ? '自動' : fan.mode === 'manual' ? '手動' : fan.mode }}</el-tag>
+                </span>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <el-slider v-model="fan.percent" :min="0" :max="100" :step="5" style="flex:1;" :disabled="fan.mode === 'auto'" @change="setFanSpeed(fan.id, fan.percent)" />
+                <el-button v-if="fan.mode !== 'auto'" size="small" @click="setFanAuto(fan.id)">自動</el-button>
+                <el-button v-else size="small" type="warning" @click="setFanSpeed(fan.id, fan.percent)">手動</el-button>
+              </div>
+            </div>
+          </div>
         </el-card>
       </el-col>
 
@@ -190,6 +208,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
@@ -202,6 +221,32 @@ use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, LegendComponent
 const info = ref(null)
 const autoRefresh = ref(true)
 let timer = null
+
+// Fans
+const fans = ref([])
+
+async function loadFans() {
+  try {
+    const res = await api.get('/api/system/fans')
+    fans.value = res.data.fans || []
+  } catch { /* no fan support */ }
+}
+
+async function setFanSpeed(fanId, percent) {
+  try {
+    await api.post('/api/system/fans/speed', { fan_id: fanId, percent })
+    ElMessage.success(`風扇 ${fanId} 設定為 ${percent}%`)
+    loadFans()
+  } catch { /* handled */ }
+}
+
+async function setFanAuto(fanId) {
+  try {
+    await api.post('/api/system/fans/auto', { fan_id: fanId })
+    ElMessage.success(`風扇 ${fanId} 切回自動模式`)
+    loadFans()
+  } catch { /* handled */ }
+}
 
 // History chart
 const historyData = ref([])
@@ -267,6 +312,7 @@ watch(autoRefresh, (val) => {
 onMounted(() => {
   fetchData()
   loadHistory()
+  loadFans()
   if (autoRefresh.value) startTimer()
 })
 
