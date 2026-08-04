@@ -11,7 +11,11 @@ from datetime import datetime
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-BACKUP_CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".protech-nas/backup")
+# Use env var or fixed path to avoid ~ resolving to different users (root vs normal user)
+BACKUP_CONFIG_DIR = os.environ.get(
+    "PROTECH_BACKUP_CONFIG_DIR",
+    "/var/lib/protech-nas/backup"
+)
 BACKUP_TASKS_FILE = os.path.join(BACKUP_CONFIG_DIR, "tasks.json")
 
 
@@ -212,6 +216,7 @@ def run_backup(task_id: str) -> dict:
 
         if result["success"]:
             _update_task_status(task_id, "success")
+            _cleanup_old_backups(task_id)
             result["duration_sec"] = duration
             return result
         else:
@@ -223,6 +228,59 @@ def run_backup(task_id: str) -> dict:
         lock_fd.close()
         try:
             os.unlink(lock_file)
+        except OSError:
+            pass
+
+
+def _cleanup_old_backups(task_id: str):
+    """Remove backup versions older than retention_days for the given task.
+
+    Only runs if retention_days > 0. Deletes timestamped subdirectories
+    (format: YYYY-MM-DD_HHMMSS) that are older than the retention period.
+    """
+    import shutil
+
+    tasks = _load_tasks()
+    task = next((t for t in tasks if t["id"] == task_id), None)
+    if not task:
+        return
+
+    retention_days = task.get("retention_days", 0)
+    if retention_days <= 0:
+        return  # No auto-cleanup configured
+
+    destination = task.get("destination", "")
+    if not destination or not os.path.isdir(destination):
+        return
+
+    cutoff = datetime.now().timestamp() - (retention_days * 86400)
+    removed = []
+
+    try:
+        for entry in os.listdir(destination):
+            full_path = os.path.join(destination, entry)
+            if not os.path.isdir(full_path):
+                continue
+
+            # Parse timestamp from directory name (YYYY-MM-DD_HHMMSS)
+            try:
+                dir_time = datetime.strptime(entry, "%Y-%m-%d_%H%M%S")
+            except ValueError:
+                continue  # Skip non-timestamp directories (e.g. "Accton")
+
+            if dir_time.timestamp() < cutoff:
+                shutil.rmtree(full_path)
+                removed.append(entry)
+    except OSError:
+        pass
+
+    if removed:
+        # Log cleanup result (write to a simple log file)
+        log_file = os.path.join(BACKUP_CONFIG_DIR, "cleanup.log")
+        try:
+            with open(log_file, "a") as f:
+                f.write(f"[{datetime.now().isoformat()}] Task {task_id}: removed {len(removed)} old backups "
+                        f"(retention={retention_days}d): {', '.join(removed)}\n")
         except OSError:
             pass
 
