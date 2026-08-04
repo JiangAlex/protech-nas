@@ -101,9 +101,14 @@
       <!-- 溫度 -->
       <el-col :xs="24" :sm="8">
         <el-card shadow="hover">
-          <template #header>溫度監控</template>
-          <div v-if="Object.keys(info.temperatures || {}).length > 0">
-            <div v-for="(temp, label) in info.temperatures" :key="label" style="margin-bottom:8px;">
+          <template #header>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span>溫度監控</span>
+              <span v-if="fans.length > 0" style="font-size:12px; color:#909399;">🌀 {{ fans.length }} 風扇</span>
+            </div>
+          </template>
+          <div v-if="Object.keys(filteredTemps).length > 0">
+            <div v-for="(temp, label) in filteredTemps" :key="label" style="margin-bottom:8px;">
               <div style="display:flex; justify-content:space-between; align-items:center;">
                 <span style="font-size:13px;">{{ label }}</span>
                 <span :style="{ color: temp.current > 70 ? '#f56c6c' : temp.current > 50 ? '#e6a23c' : '#67c23a', fontWeight: 'bold' }">
@@ -224,6 +229,18 @@ let timer = null
 
 // Fans
 const fans = ref([])
+
+// Filter out invalid temperature readings
+const filteredTemps = computed(() => {
+  const temps = info.value?.temperatures || {}
+  const result = {}
+  for (const [label, temp] of Object.entries(temps)) {
+    if (temp.current > -40 && temp.current < 120) {
+      result[label] = temp
+    }
+  }
+  return result
+})
 
 async function loadFans() {
   try {
