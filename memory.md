@@ -1,110 +1,61 @@
-# ProTech NAS — Architecture & Design Notes
+# ProTech NAS — 開發筆記
 
-## 系統概述
+## 專案概況
 
-ProTech NAS 是一套自建 NAS 管理系統，以 FastAPI 為後端 API 層，包裝 Linux 系統工具（Samba, NFS, Docker, mdadm 等），前端使用 Vue.js 3 + Element Plus 提供桌面式管理介面。
+- 自建 NAS 管理系統，仿 fnOS，基於 FastAPI + Vue.js 3 + Element Plus
+- 專案路徑：`/home/alex_chiang/projects/protech-nas`
+- Backend：Python 3.11+ / FastAPI / Uvicorn，入口 `src.main:app`，port 8000
+- Frontend：Vue.js 3 / Vite / Element Plus / Pinia / vue-i18n，dev port 5173
+- 92 個 API endpoints，12 個 routers，12 個 service modules
 
-## 模組架構
+## 生產部署（開機自動啟動）
 
-### Backend Services
+已建立以下部署檔案（2026-08-04）：
 
-| Service | 職責 | 底層工具 |
-|---------|------|---------|
-| system_service | 系統監控 (CPU/RAM/Disk/Network) | psutil |
-| storage_service | 磁碟/RAID/掛載管理 | lsblk, mdadm, mount, df |
-| samba_service | SMB 共享管理 | /etc/samba/smb.conf, smbd |
-| nfs_service | NFS 匯出管理 | /etc/exports, exportfs |
-| docker_service | Docker 容器/映像管理 | Docker SDK (docker-py) |
-| user_service | 系統帳號管理 | useradd, userdel, smbpasswd |
+| 檔案 | 用途 |
+|------|------|
+| `scripts/protech-nas.service` | systemd service，Uvicorn --workers 2，開機自動啟動 backend |
+| `scripts/protech-nas-nginx.conf` | Nginx 設定：前端 SPA 託管 + `/api` 反向代理到 backend + gzip + 10G 上傳限制 |
+| `scripts/deploy.sh` | 一鍵部署腳本（build frontend → 部署 → systemd → nginx → sudoers） |
 
-### Frontend Pages
+### 部署指令
 
-| 頁面 | 路由 | 功能 |
-|------|------|------|
-| Login | /login | JWT 登入 |
-| Dashboard | /dashboard | 系統狀態儀表板 |
-| Storage | /storage | 磁碟/掛載/RAID |
-| Shares | /shares | SMB + NFS 管理 |
-| Docker | /docker | 容器管理 + 日誌 |
-| Users | /users | 帳號/群組管理 |
+```bash
+# 前置：安裝系統依賴與專案依賴
+bash scripts/install.sh
+bash scripts/setup_deps.sh
 
-## API 路由表
-
-```
-POST /api/auth/login         → JWT token
-GET  /api/auth/me            → 當前使用者
-
-GET  /api/dashboard          → 系統資訊
-
-GET  /api/storage/disks      → lsblk 磁碟列表
-GET  /api/storage/mounts     → df 掛載列表
-GET  /api/storage/raid       → /proc/mdstat
-POST /api/storage/mount      → 掛載磁碟
-POST /api/storage/unmount    → 卸載磁碟
-
-GET  /api/shares/smb         → SMB 共享列表
-POST /api/shares/smb         → 建立 SMB 共享
-DEL  /api/shares/smb/{name}  → 刪除 SMB 共享
-GET  /api/shares/nfs         → NFS 匯出列表
-POST /api/shares/nfs         → 建立 NFS 匯出
-DEL  /api/shares/nfs         → 刪除 NFS 匯出
-
-GET  /api/docker/containers  → 容器列表
-POST /api/docker/containers/{id}/start → 啟動
-POST /api/docker/containers/{id}/stop  → 停止
-DEL  /api/docker/containers/{id}       → 刪除
-GET  /api/docker/containers/{id}/logs  → 日誌
-GET  /api/docker/images      → 映像列表
-POST /api/docker/images/pull → 拉取映像
-
-GET  /api/users              → 使用者列表
-POST /api/users              → 建立使用者
-DEL  /api/users/{username}   → 刪除使用者
-PUT  /api/users/{username}/password → 改密碼
-GET  /api/users/groups       → 群組列表
-POST /api/users/groups       → 建立群組
-DEL  /api/users/groups/{name}→ 刪除群組
+# 一鍵部署（需 sudo）
+sudo bash scripts/deploy.sh
 ```
 
-## 安全性
+### 管理指令
 
-- **認證方式**：JWT Bearer Token (HS256)
-- **Token 有效期**：24 小時（可配置）
-- **敏感操作**：所有 API 需要有效 token（除了 /api/auth/login）
-- **系統權限**：後端需以 root 或有 sudo 權限的使用者執行（操作 mount/useradd/smb.conf）
-- **生產建議**：使用 nginx reverse proxy + HTTPS
-
-## 部署架構
-
-```
-[Nginx]  ← HTTPS (port 443)
-   │
-   ├── /          → frontend/dist/ (static)
-   └── /api/*     → uvicorn (port 8000)
+```bash
+systemctl status protech-nas        # 查看狀態
+journalctl -u protech-nas -f        # 即時 log
+sudo systemctl restart protech-nas  # 重啟 backend
+sudo systemctl reload nginx         # 重載前端設定
 ```
 
-## 開發環境
+### 部署架構
 
-- Python 3.10+
-- Node.js 20.x
-- Debian 12 / Ubuntu 22.04+
-- Docker 24+
+```
+Browser → Nginx(:80)
+            ├── / → /var/www/protech-nas/ (Vue SPA)
+            └── /api/* → proxy → Uvicorn(:8000) (FastAPI backend)
+```
 
-## 目標硬體
+## 重要設定
 
-- Intel N100 (4C/4T, 6W TDP)
-- 16GB DDR4
-- 256GB NVMe (系統)
-- 2-4x HDD (資料 RAID)
-- 2.5GbE x2
+- `.env` 需設定 `SECRET_KEY`（生產環境必改）
+- 預設帳號：admin / admin123（生產環境必改）
+- sudoers 設定：`/etc/sudoers.d/protech-nas`（免密碼執行特權指令）
+- Backend service 以 `alex_chiang` 使用者執行（deploy.sh 會自動替換）
 
-## 未來規劃 (Post-MVP)
+## 系統需求
 
-- [ ] BTRFS 快照管理
-- [ ] 定時備份任務
-- [ ] 媒體伺服器整合 (Jellyfin)
-- [ ] AI 照片辨識
-- [ ] 行動 APP
-- [ ] 系統通知 (Email / Telegram)
-- [ ] 多語言 (i18n)
-- [ ] 2FA 雙因子認證
+- OS：Debian 12 / Ubuntu 22.04+
+- Hardware：Intel N100 Mini-ITX / 16GB RAM
+- 必要套件：python3, nodejs 18+, nginx, docker.io, samba, nfs-kernel-server, smartmontools
+- 選用套件：lm-sensors, traceroute, dnsutils, wireguard, certbot, exfatprogs, btrfs-progs
