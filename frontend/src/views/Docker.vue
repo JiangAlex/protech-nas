@@ -15,11 +15,12 @@
               <el-tag :type="row.state === 'running' ? 'success' : 'info'">{{ row.status }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="420">
+          <el-table-column label="操作" width="480">
             <template #default="{ row }">
               <el-button v-if="row.state !== 'running'" type="success" size="small" @click="start(row.id)">啟動</el-button>
               <el-button v-if="row.state === 'running'" type="warning" size="small" @click="stop(row.id)">停止</el-button>
               <el-button type="primary" size="small" @click="restart(row.id)">重啟</el-button>
+              <el-button size="small" @click="editContainer(row)">編輯</el-button>
               <el-button size="small" @click="showLogs(row.id, row.name)">日誌</el-button>
               <el-button size="small" @click="showStats(row.id, row.name)">Stats</el-button>
               <el-button size="small" @click="showInspect(row.id, row.name)">Inspect</el-button>
@@ -151,7 +152,7 @@
     </el-dialog>
 
     <!-- Create Container Dialog -->
-    <el-dialog v-model="createDialogVisible" title="建立容器" width="550px">
+    <el-dialog v-model="createDialogVisible" :title="editingContainerId ? '編輯容器（將重建）' : '建立容器'" width="550px" @close="editingContainerId = null">
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="100px">
         <el-form-item label="映像" prop="image">
           <el-input v-model="createForm.image" placeholder="nginx:latest" />
@@ -394,6 +395,61 @@ async function showInspect(id, name) {
   } catch { inspectContent.value = '載入失敗' }
 }
 
+// === Edit Container (recreate with modified settings) ===
+const editingContainerId = ref(null)
+
+async function editContainer(row) {
+  try {
+    const res = await api.get(`/api/docker/containers/${row.id}/inspect`)
+    const config = res.data.config || res.data
+    const containerConfig = config.Config || {}
+    const hostConfig = config.HostConfig || {}
+    const networkSettings = config.NetworkSettings || {}
+
+    // Pre-fill image
+    createForm.image = containerConfig.Image || row.image || ''
+    createForm.name = config.Name?.replace(/^\//, '') || row.name || ''
+
+    // Pre-fill ports
+    createForm.portList = []
+    const portBindings = hostConfig.PortBindings || {}
+    for (const [containerPort, bindings] of Object.entries(portBindings)) {
+      if (bindings && bindings.length > 0) {
+        const port = containerPort.replace('/tcp', '').replace('/udp', '')
+        createForm.portList.push({
+          host: bindings[0].HostPort || '',
+          container: port,
+        })
+      }
+    }
+
+    // Pre-fill env vars
+    createForm.envList = []
+    const envArr = containerConfig.Env || []
+    for (const env of envArr) {
+      const idx = env.indexOf('=')
+      if (idx > 0) {
+        const key = env.substring(0, idx)
+        const value = env.substring(idx + 1)
+        // Skip internal env vars
+        if (!['PATH', 'HOSTNAME', 'HOME', 'GOSU_VERSION'].includes(key)) {
+          createForm.envList.push({ key, value })
+        }
+      }
+    }
+
+    // Pre-fill restart policy
+    createForm.restart_policy = hostConfig.RestartPolicy?.Name || 'no'
+
+    // Store editing state
+    editingContainerId.value = row.id
+
+    createDialogVisible.value = true
+  } catch {
+    ElMessage.error('無法載入容器設定')
+  }
+}
+
 // === Image Actions ===
 async function deleteImage(id) {
   await ElMessageBox.confirm('確定要刪除此映像？', '確認', { type: 'warning' })
@@ -429,6 +485,14 @@ async function createContainer() {
   })
 
   try {
+    // If editing, stop and remove old container first
+    if (editingContainerId.value) {
+      try {
+        await api.post(`/api/docker/containers/${editingContainerId.value}/stop`)
+      } catch { /* may already be stopped */ }
+      await api.delete(`/api/docker/containers/${editingContainerId.value}`)
+    }
+
     await api.post('/api/docker/containers/create', {
       image: createForm.image,
       name: createForm.name || undefined,
@@ -436,12 +500,13 @@ async function createContainer() {
       environment: Object.keys(environment).length ? environment : undefined,
       restart_policy: createForm.restart_policy,
     })
-    ElMessage.success('容器已建立')
+    ElMessage.success(editingContainerId.value ? '容器已更新（重建）' : '容器已建立')
     createDialogVisible.value = false
     createForm.image = ''
     createForm.name = ''
     createForm.portList = []
     createForm.envList = []
+    editingContainerId.value = null
     loadData()
   } catch { /* handled */ }
   finally { createLoading.value = false }
