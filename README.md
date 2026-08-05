@@ -27,7 +27,7 @@
 | Frontend | Vue.js 3 / Vite / Element Plus / Pinia / vue-i18n |
 | Auth | JWT (python-jose) / TOTP 2FA |
 | System Integration | psutil, Docker SDK, subprocess (samba/nfs/mdadm/iptables/wg) |
-| Target Hardware | Intel N100 Mini-ITX / 16GB RAM |
+| Target Hardware | Intel Atom D2550 / 4GB RAM |
 | Target OS | Debian 12 / Ubuntu Server 22.04+ |
 
 ## Architecture
@@ -55,7 +55,7 @@
                     ▼
 ┌─────────────────────────────────────────────────┐
 │       Linux (Debian 12 / Ubuntu Server)          │
-│       Intel N100 + 16GB RAM + HDDs               │
+│       Intel Atom D2550 + 4GB RAM + HDDs           │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -477,6 +477,11 @@ nas ALL=(ALL) NOPASSWD: /usr/sbin/useradd, /usr/sbin/userdel, /usr/sbin/usermod,
 | 服務管理 | — (內建 systemctl) | ✅ |
 | 電源控制 | — (內建 shutdown) | ✅ |
 | Btrfs 快照 | btrfs-progs | ✅ |
+
+## Communication
+
+- **技術解釋**使用「繁體中文」
+- **變數名稱**、**函數名稱**與**代碼註釋**必須保持英文
 
 ## License
 

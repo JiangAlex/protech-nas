@@ -71,7 +71,7 @@ class SystemSettings(BaseModel):
 
 
 class UpdateApply(BaseModel):
-    packages: Optional[list] = None
+    pass  # No parameters needed — OTA update is fully automatic
 
 
 @router.get("/services")
@@ -109,7 +109,7 @@ async def get_hardware(user=Depends(get_current_user)):
 
 @router.get("/updates")
 async def get_updates(user=Depends(get_current_user)):
-    """Check for available updates."""
+    """Check for available OTA updates from the update server."""
     result = check_updates()
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -117,9 +117,9 @@ async def get_updates(user=Depends(get_current_user)):
 
 
 @router.post("/updates/apply")
-async def post_apply_updates(data: UpdateApply = UpdateApply(), user=Depends(get_current_user)):
-    """Apply system updates."""
-    result = apply_updates(data.packages)
+async def post_apply_updates(user=Depends(get_current_user)):
+    """Apply OTA system update (git pull + pip install + frontend deploy + restart)."""
+    result = apply_updates()
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

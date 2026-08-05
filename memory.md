@@ -69,9 +69,75 @@ mdadm --detail /dev/md0        # 陣列詳情
 mdadm --add /dev/md0 /dev/sdX1 # 加入新碟重建鏡像
 ```
 
+## 硬體規格（已修正）
+
+- CPU：Intel Atom D2550 @ 1.86GHz（2C/4T, 32nm, TDP 10W）
+- RAM：~4GB DDR3
+- 資源有限，不適合跑 Docker daemon 來包裝 NAS 系統本身
+- Docker 適合讓使用者部署自己的容器（Jellyfin、Nextcloud 等）
+
 ## 系統需求
 
 - OS：Debian 12 / Ubuntu 22.04+
-- Hardware：Intel N100 Mini-ITX / 16GB RAM
-- 必要套件：python3, nodejs 18+, nginx, docker.io, samba, nfs-kernel-server, smartmontools
-- 選用套件：lm-sensors, traceroute, dnsutils, wireguard, certbot, exfatprogs, btrfs-progs
+- Hardware：Intel Atom D2550 / 4GB RAM
+- 必要套件：python3, nginx, samba, nfs-kernel-server, smartmontools
+- 選用套件：lm-sensors, traceroute, dnsutils, wireguard, certbot, exfatprogs, btrfs-progs, docker.io
+- **NAS 不需要安裝 Node.js**（frontend 由 OTA Server / CI 預建）
+
+## 系統更新功能（OTA — 已實作 2026-08-05）
+
+### 設計決策
+
+- **不是 apt 套件更新**，是 ProTech NAS 應用程式自身的 OTA 更新
+- **不用 .bin 韌體**，用 git-based code deployment + service restart
+- **NAS 不需要 Node.js**：frontend 由 Server 端 / CI 預先 build，NAS 只下載 `frontend.tar.gz` 解壓
+- 支援 Systemd 和 Docker 兩種部署模式
+
+### OTA Server
+
+- 獨立 Server 運行在 port 8060
+- API 規格：`docs/ota-api.md`
+- NAS 主動向 Server 檢查更新（pull model）
+
+### OTA 流程
+
+```
+NAS → POST /api/ota/check → 有新版本？
+NAS → GET /api/ota/download/{device_id} → 取得 git hash + instructions
+NAS → GET /api/ota/artifacts/{version}/frontend.tar.gz → 下載預建 frontend
+NAS → 執行更新（git checkout → pip install → deploy frontend → restart）
+NAS → 健康檢查 → 失敗自動回滾
+NAS → POST /api/ota/report → 回報結果
+```
+
+### 實作檔案
+
+| 檔案 | 說明 |
+|------|------|
+| `VERSION` | 目前版本號（根目錄） |
+| `docs/ota-api.md` | OTA API 完整規格（含 Systemd / Docker 兩種模式） |
+| `backend/src/config.py` | `OTA_SERVER_URL`, `OTA_DEVICE_ID`, `OTA_DEPLOY_MODE`, `OTA_APP_DIR`, `OTA_WEB_DIR` |
+| `backend/src/services/system_service.py` | `check_updates()` → 呼叫 OTA Server；`apply_updates()` → 完整 OTA 流程含回滾 |
+| `backend/src/routers/system.py` | `GET /api/system/updates`、`POST /api/system/updates/apply` |
+| `scripts/ota-update.sh` | 獨立 bash 腳本，可由 cron 或手動觸發 |
+
+### 環境變數（.env）
+
+```
+OTA_SERVER_URL=http://your-server:8060
+OTA_DEVICE_ID=1
+OTA_DEPLOY_MODE=systemd        # systemd / docker
+OTA_APP_DIR=/opt/protech-nas
+OTA_WEB_DIR=/var/www/protech-nas
+```
+
+### 依賴
+
+- `httpx`（已在 requirements.txt）— NAS 端呼叫 OTA Server API
+
+### Cron 自動檢查（建議）
+
+```bash
+# 每天凌晨 3 點自動檢查並更新
+0 3 * * * /opt/protech-nas/scripts/ota-update.sh >> /var/log/protech-nas-update.log 2>&1
+```

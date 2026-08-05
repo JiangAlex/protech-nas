@@ -504,66 +504,379 @@ def get_hardware_info() -> dict:
     }
 
 
-# ─── System Updates ───────────────────────────────────────────────────────────
+# ─── System Updates (OTA) ─────────────────────────────────────────────────────
+
+import hashlib
+import shutil
+import tarfile
+import tempfile
+
+try:
+    import httpx
+    _HAS_HTTPX = True
+except ImportError:
+    _HAS_HTTPX = False
+
+from ..config import settings
+
+
+def _get_current_version() -> str:
+    """Read current version from VERSION file."""
+    version_file = os.path.join(settings.OTA_APP_DIR, "VERSION")
+    try:
+        with open(version_file) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        # Fallback: try relative path (dev mode)
+        fallback = os.path.join(os.path.dirname(__file__), "..", "..", "..", "VERSION")
+        try:
+            with open(os.path.abspath(fallback)) as f:
+                return f.read().strip()
+        except FileNotFoundError:
+            return "unknown"
+
+
+def _get_current_git_hash() -> str:
+    """Get current git commit hash."""
+    rc, out, _ = _run(["git", "-C", settings.OTA_APP_DIR, "rev-parse", "--short", "HEAD"])
+    if rc == 0:
+        return out.strip()
+    # Fallback: try CWD (dev mode)
+    rc, out, _ = _run(["git", "rev-parse", "--short", "HEAD"])
+    return out.strip() if rc == 0 else "unknown"
+
 
 def check_updates() -> dict:
-    """Check for available system updates.
+    """Check for available OTA updates from the update server.
+
+    Calls POST /api/ota/check on the OTA server.
 
     Returns:
-        {"success": bool, "upgradable_count": int, "packages": list[dict]}
+        {
+            "success": bool,
+            "update_available": bool,
+            "current_version": str,
+            "latest_version": str,
+            "latest_git_hash": str,
+            "changelog": str,
+            "released_at": str,
+        }
     """
-    # Run apt update first
-    rc, _, err = _run(["apt-get", "update", "-qq"], timeout=60)
-    if rc != 0:
-        return {"success": False, "error": f"apt update failed: {err.strip()}"}
+    if not _HAS_HTTPX:
+        return {"success": False, "error": "httpx not installed. Run: pip install httpx"}
 
-    # List upgradable
-    rc, out, _ = _run(["apt", "list", "--upgradable"], timeout=30)
-    packages = []
-    for line in out.strip().split("\n"):
-        if "/" in line and "upgradable" in line.lower():
-            # Format: package/source version [upgradable from: old_version]
-            parts = line.split()
-            if len(parts) >= 2:
-                name = parts[0].split("/")[0]
-                version = parts[1]
-                old_version = ""
-                if "from:" in line:
-                    idx = line.index("from:")
-                    old_version = line[idx + 5:].strip().rstrip("]")
-                packages.append({"name": name, "available": version, "current": old_version})
+    current_version = _get_current_version()
+    current_hash = _get_current_git_hash()
 
-    return {"success": True, "upgradable_count": len(packages), "packages": packages}
+    try:
+        with httpx.Client(timeout=15) as client:
+            resp = client.post(
+                f"{settings.OTA_SERVER_URL}/api/ota/check",
+                json={
+                    "device_id": settings.OTA_DEVICE_ID,
+                    "current_version": current_version,
+                    "current_git_hash": current_hash,
+                    "device_type": "nas",
+                    "deploy_mode": settings.OTA_DEPLOY_MODE,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.ConnectError:
+        return {"success": False, "error": f"Cannot connect to OTA server: {settings.OTA_SERVER_URL}"}
+    except httpx.HTTPStatusError as e:
+        return {"success": False, "error": f"OTA server error: {e.response.status_code}"}
+    except Exception as e:
+        return {"success": False, "error": f"OTA check failed: {str(e)}"}
+
+    return {
+        "success": True,
+        "update_available": data.get("update_available", False),
+        "current_version": data.get("current_version", current_version),
+        "latest_version": data.get("latest_version", current_version),
+        "latest_git_hash": data.get("latest_git_hash", ""),
+        "changelog": data.get("changelog", ""),
+        "frontend_artifact_url": data.get("frontend_artifact_url"),
+        "released_at": data.get("released_at", ""),
+    }
 
 
-def apply_updates(packages: list = None) -> dict:
-    """Apply system updates.
+def _get_download_info() -> dict | None:
+    """Fetch download info from OTA server (GET /api/ota/download/{device_id})."""
+    try:
+        with httpx.Client(timeout=15) as client:
+            resp = client.get(
+                f"{settings.OTA_SERVER_URL}/api/ota/download/{settings.OTA_DEVICE_ID}"
+            )
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            return resp.json()
+    except Exception:
+        return None
 
-    Args:
-        packages: List of package names to update. None = update all.
+
+def _report_update(from_version: str, to_version: str, to_git_hash: str, status: str, error_message: str = "") -> None:
+    """Report update result to OTA server (POST /api/ota/report)."""
+    try:
+        with httpx.Client(timeout=15) as client:
+            client.post(
+                f"{settings.OTA_SERVER_URL}/api/ota/report",
+                json={
+                    "device_id": settings.OTA_DEVICE_ID,
+                    "from_version": from_version,
+                    "to_version": to_version,
+                    "to_git_hash": to_git_hash,
+                    "status": status,
+                    "error_message": error_message,
+                },
+            )
+    except Exception:
+        pass  # Best effort
+
+
+def _download_frontend_artifact(artifact_url: str, checksum: str | None) -> str | None:
+    """Download and verify frontend artifact. Returns temp file path or None."""
+    try:
+        full_url = f"{settings.OTA_SERVER_URL}{artifact_url}"
+        tmp_file = tempfile.mktemp(suffix=".tar.gz", prefix="frontend-")
+
+        with httpx.Client(timeout=120) as client:
+            with client.stream("GET", full_url) as resp:
+                resp.raise_for_status()
+                with open(tmp_file, "wb") as f:
+                    for chunk in resp.iter_bytes(chunk_size=8192):
+                        f.write(chunk)
+
+        # Verify checksum
+        if checksum and checksum != "null":
+            expected = checksum.replace("sha256:", "")
+            sha256 = hashlib.sha256()
+            with open(tmp_file, "rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):
+                    sha256.update(chunk)
+            if sha256.hexdigest() != expected:
+                os.unlink(tmp_file)
+                return None
+
+        return tmp_file
+    except Exception:
+        return None
+
+
+def apply_updates() -> dict:
+    """Apply OTA update: git pull backend + download frontend artifact + restart.
+
+    Follows the OTA flow:
+    1. Get download info from server
+    2. Git fetch + checkout target hash
+    3. pip install requirements
+    4. Download & deploy frontend artifact (systemd mode)
+    5. Restart service
+    6. Health check
+    7. Rollback on failure
+    8. Report result to server
 
     Returns:
-        {"success": bool, "updated_count": int, "message": str}
+        {"success": bool, "message": str, "from_version": str, "to_version": str, "status": str}
     """
-    if packages:
-        cmd = ["apt-get", "install", "--only-upgrade", "-y"] + packages
-    else:
-        cmd = ["apt-get", "upgrade", "-y"]
+    if not _HAS_HTTPX:
+        return {"success": False, "error": "httpx not installed. Run: pip install httpx"}
 
-    rc, out, err = _run(cmd, timeout=600)  # 10 min timeout
-    if rc != 0:
-        return {"success": False, "error": f"apt upgrade failed: {err.strip()[:200]}"}
+    # Check lock file
+    lock_file = "/tmp/protech-nas-update.lock"
+    if os.path.exists(lock_file):
+        return {"success": False, "error": "Update already in progress"}
 
-    # Count upgraded
-    count = 0
-    for line in out.split("\n"):
-        if "upgraded" in line.lower() and "newly" in line.lower():
-            parts = line.split()
-            if parts and parts[0].isdigit():
-                count = int(parts[0])
-                break
+    current_version = _get_current_version()
+    app_dir = settings.OTA_APP_DIR
+    web_dir = settings.OTA_WEB_DIR
 
-    return {"success": True, "updated_count": count, "message": "System updated successfully"}
+    # Get download info
+    download_info = _get_download_info()
+    if not download_info:
+        return {"success": False, "error": "No update available or cannot fetch download info"}
+
+    target_version = download_info.get("version", "")
+    target_hash = download_info.get("git_hash", "")
+    frontend_url = download_info.get("frontend_artifact_url")
+    frontend_checksum = download_info.get("frontend_checksum")
+    deploy_mode = download_info.get("deploy_mode", settings.OTA_DEPLOY_MODE)
+
+    # Create lock
+    try:
+        with open(lock_file, "w") as f:
+            f.write(str(os.getpid()))
+    except OSError:
+        pass
+
+    error_message = ""
+    status = ""
+
+    try:
+        # Record old hash for rollback
+        rc, old_hash_out, _ = _run(["git", "-C", app_dir, "rev-parse", "HEAD"])
+        old_hash = old_hash_out.strip() if rc == 0 else ""
+
+        if deploy_mode == "docker":
+            # ─── Docker mode ─────────────────────────────────────────────
+            # git fetch + checkout
+            rc, _, err = _run(["git", "-C", app_dir, "fetch", "origin", "main"], timeout=120)
+            if rc != 0:
+                error_message = f"git fetch failed: {err.strip()}"
+                status = "failed"
+                _report_update(current_version, target_version, target_hash, status, error_message)
+                return {"success": False, "error": error_message}
+
+            rc, _, err = _run(["git", "-C", app_dir, "checkout", target_hash])
+            if rc != 0:
+                error_message = f"git checkout failed: {err.strip()}"
+                status = "failed"
+                _report_update(current_version, target_version, target_hash, status, error_message)
+                return {"success": False, "error": error_message}
+
+            # docker compose up --build
+            rc, _, err = _run(["docker", "compose", "-f", f"{app_dir}/docker-compose.yml", "up", "-d", "--build"], timeout=600)
+            if rc != 0:
+                error_message = f"docker compose up failed: {err.strip()}"
+                status = "failed"
+                # Rollback
+                _run(["git", "-C", app_dir, "checkout", old_hash])
+                _run(["docker", "compose", "-f", f"{app_dir}/docker-compose.yml", "up", "-d", "--build"], timeout=600)
+                _report_update(current_version, target_version, target_hash, "rolled_back", error_message)
+                return {"success": False, "error": error_message}
+
+        else:
+            # ─── Systemd mode ────────────────────────────────────────────
+            # Backup frontend
+            web_backup = f"{web_dir}.bak"
+            if os.path.exists(web_dir):
+                _sudo_run(["cp", "-r", web_dir, web_backup])
+
+            # git fetch + checkout
+            rc, _, err = _run(["git", "-C", app_dir, "fetch", "origin", "main"], timeout=120)
+            if rc != 0:
+                error_message = f"git fetch failed: {err.strip()}"
+                status = "failed"
+                _report_update(current_version, target_version, target_hash, status, error_message)
+                return {"success": False, "error": error_message}
+
+            rc, _, err = _run(["git", "-C", app_dir, "checkout", target_hash])
+            if rc != 0:
+                error_message = f"git checkout failed: {err.strip()}"
+                status = "failed"
+                _report_update(current_version, target_version, target_hash, status, error_message)
+                return {"success": False, "error": error_message}
+
+            # pip install
+            venv_pip = os.path.join(app_dir, "backend", ".venv", "bin", "pip")
+            req_file = os.path.join(app_dir, "backend", "requirements.txt")
+            rc, _, err = _run([venv_pip, "install", "-r", req_file, "-q"], timeout=300)
+            if rc != 0:
+                error_message = f"pip install failed: {err.strip()}"
+                status = "failed"
+                # Rollback git
+                _run(["git", "-C", app_dir, "checkout", old_hash])
+                _report_update(current_version, target_version, target_hash, "rolled_back", error_message)
+                return {"success": False, "error": error_message}
+
+            # Download frontend artifact
+            if frontend_url and frontend_url != "null":
+                tmp_file = _download_frontend_artifact(frontend_url, frontend_checksum)
+                if not tmp_file:
+                    error_message = "Frontend artifact download or checksum verification failed"
+                    status = "failed"
+                    # Rollback
+                    _run(["git", "-C", app_dir, "checkout", old_hash])
+                    _run([venv_pip, "install", "-r", req_file, "-q"], timeout=300)
+                    _report_update(current_version, target_version, target_hash, "rolled_back", error_message)
+                    return {"success": False, "error": error_message}
+
+                # Deploy frontend
+                _sudo_run(["rm", "-rf", web_dir])
+                _sudo_run(["mkdir", "-p", web_dir])
+                rc, _, err = _sudo_run(["tar", "-xzf", tmp_file, "-C", web_dir, "--strip-components=1"])
+                os.unlink(tmp_file)
+                if rc != 0:
+                    error_message = f"Frontend extraction failed: {err.strip()}"
+                    status = "failed"
+                    # Restore backup
+                    _sudo_run(["rm", "-rf", web_dir])
+                    _sudo_run(["mv", web_backup, web_dir])
+                    _run(["git", "-C", app_dir, "checkout", old_hash])
+                    _report_update(current_version, target_version, target_hash, "rolled_back", error_message)
+                    return {"success": False, "error": error_message}
+
+            # Restart service
+            rc, _, err = _sudo_run(["systemctl", "restart", "protech-nas"])
+            if rc != 0:
+                error_message = f"Service restart failed: {err.strip()}"
+                status = "failed"
+                # Rollback
+                _run(["git", "-C", app_dir, "checkout", old_hash])
+                _run([venv_pip, "install", "-r", req_file, "-q"], timeout=300)
+                if os.path.exists(web_backup):
+                    _sudo_run(["rm", "-rf", web_dir])
+                    _sudo_run(["mv", web_backup, web_dir])
+                _sudo_run(["systemctl", "restart", "protech-nas"])
+                _report_update(current_version, target_version, target_hash, "rolled_back", error_message)
+                return {"success": False, "error": error_message}
+
+            # Cleanup backup
+            if os.path.exists(web_backup):
+                _sudo_run(["rm", "-rf", web_backup])
+
+        # Health check (wait for service restart)
+        import time as _time
+        _time.sleep(3)
+        rc, out, _ = _run(["curl", "-sf", "http://localhost:8000/api/health"], timeout=10)
+        if rc != 0:
+            error_message = "Health check failed after update"
+            status = "failed"
+            # Rollback
+            if deploy_mode == "docker":
+                _run(["git", "-C", app_dir, "checkout", old_hash])
+                _run(["docker", "compose", "-f", f"{app_dir}/docker-compose.yml", "up", "-d", "--build"], timeout=600)
+            else:
+                _run(["git", "-C", app_dir, "checkout", old_hash])
+                _run([venv_pip, "install", "-r", req_file, "-q"], timeout=300)
+                if os.path.exists(web_backup):
+                    _sudo_run(["rm", "-rf", web_dir])
+                    _sudo_run(["mv", web_backup, web_dir])
+                _sudo_run(["systemctl", "restart", "protech-nas"])
+            _report_update(current_version, target_version, target_hash, "rolled_back", error_message)
+            return {"success": False, "error": error_message}
+
+        # Success — update VERSION file
+        version_file = os.path.join(app_dir, "VERSION")
+        try:
+            with open(version_file, "w") as f:
+                f.write(target_version + "\n")
+        except OSError:
+            pass
+
+        status = "completed"
+        _report_update(current_version, target_version, target_hash, status)
+
+        return {
+            "success": True,
+            "message": f"System updated from {current_version} to {target_version}",
+            "from_version": current_version,
+            "to_version": target_version,
+            "status": "completed",
+        }
+
+    except Exception as e:
+        error_message = str(e)
+        _report_update(current_version, target_version, target_hash, "failed", error_message)
+        return {"success": False, "error": f"Update failed: {error_message}"}
+
+    finally:
+        # Remove lock
+        try:
+            os.unlink(lock_file)
+        except OSError:
+            pass
 
 
 # ─── Cron Jobs ────────────────────────────────────────────────────────────────
