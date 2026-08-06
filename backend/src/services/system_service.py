@@ -553,6 +553,24 @@ def _get_current_version() -> str:
             return "unknown"
 
 
+def _get_mac_address() -> str:
+    """Get the MAC address of the primary network interface."""
+    import glob as _mac_glob
+    # Find the first non-loopback interface with a valid MAC
+    for iface_path in sorted(_mac_glob.glob("/sys/class/net/*/address")):
+        iface_name = iface_path.split("/")[-2]
+        if iface_name == "lo":
+            continue
+        try:
+            with open(iface_path) as f:
+                mac = f.read().strip()
+            if mac and mac != "00:00:00:00:00:00":
+                return mac
+        except OSError:
+            continue
+    return ""
+
+
 def _get_current_git_hash() -> str:
     """Get current git commit hash."""
     rc, out, _ = _run(["git", "-C", settings.OTA_APP_DIR, "rev-parse", "--short", "HEAD"])
@@ -593,6 +611,7 @@ def check_updates() -> dict:
                     "device_id": settings.OTA_DEVICE_ID,
                     "current_version": current_version,
                     "current_git_hash": current_hash,
+                    "mac_address": _get_mac_address(),
                     "device_type": "nas",
                     "deploy_mode": settings.OTA_DEPLOY_MODE,
                 },
