@@ -71,10 +71,10 @@
 
     <!-- ═══ 區塊二：系統與服務狀態 ═══ -->
     <h3 style="margin:20px 0 12px 0; color:#606266;">系統與服務狀態</h3>
-    <el-row :gutter="16" v-if="info">
+    <el-row :gutter="16" v-if="info" style="display:flex; flex-wrap:wrap;">
       <!-- RAID 狀態 -->
-      <el-col :xs="24" :sm="8">
-        <el-card shadow="hover">
+      <el-col :xs="24" :sm="8" style="display:flex;">
+        <el-card shadow="hover" style="width:100%;">
           <template #header>RAID 陣列</template>
           <div v-if="info.raid">
             <el-descriptions :column="1" size="small" border>
@@ -99,8 +99,8 @@
       </el-col>
 
       <!-- 溫度 -->
-      <el-col :xs="24" :sm="8">
-        <el-card shadow="hover">
+      <el-col :xs="24" :sm="8" style="display:flex;">
+        <el-card shadow="hover" style="width:100%;">
           <template #header>
             <div style="display:flex; justify-content:space-between; align-items:center;">
               <span>溫度監控</span>
@@ -148,8 +148,8 @@
       </el-col>
 
       <!-- Docker -->
-      <el-col :xs="24" :sm="8">
-        <el-card shadow="hover">
+      <el-col :xs="24" :sm="8" style="display:flex;">
+        <el-card shadow="hover" style="width:100%;">
           <template #header>
             <div style="display:flex; justify-content:space-between; align-items:center;">
               <span>Docker 容器</span>
@@ -195,7 +195,7 @@
             <el-descriptions-item label="運行時間">{{ info.uptime }}</el-descriptions-item>
             <el-descriptions-item label="系統版本">{{ versionInfo.version || '—' }}</el-descriptions-item>
             <el-descriptions-item label="Git Hash">
-              <el-tag size="small" type="info" style="font-family: monospace;">{{ versionInfo.git_hash || '—' }}</el-tag>
+              <code style="font-family: monospace; font-size: 13px;">{{ versionInfo.git_hash || '—' }}</code>
             </el-descriptions-item>
           </el-descriptions>
         </el-card>
