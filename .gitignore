@@ -8,3 +8,7 @@ __pycache__/
 .vscode
 .DS_Store
 backend/data/
+
+# Local docs (not tracked)
+docs/*.md
+memory.md
