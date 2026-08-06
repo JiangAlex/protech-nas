@@ -588,7 +588,7 @@ def check_updates() -> dict:
     try:
         with httpx.Client(timeout=15) as client:
             resp = client.post(
-                f"{settings.OTA_SERVER_URL}/api/ota/check",
+                f"{settings.OTA_SERVER_URL}/api/ota/nas/check",
                 json={
                     "device_id": settings.OTA_DEVICE_ID,
                     "current_version": current_version,
@@ -623,7 +623,7 @@ def _get_download_info() -> dict | None:
     try:
         with httpx.Client(timeout=15) as client:
             resp = client.get(
-                f"{settings.OTA_SERVER_URL}/api/ota/download/{settings.OTA_DEVICE_ID}"
+                f"{settings.OTA_SERVER_URL}/api/ota/nas/download/{settings.OTA_DEVICE_ID}"
             )
             if resp.status_code == 404:
                 return None
@@ -638,7 +638,7 @@ def _report_update(from_version: str, to_version: str, to_git_hash: str, status:
     try:
         with httpx.Client(timeout=15) as client:
             client.post(
-                f"{settings.OTA_SERVER_URL}/api/ota/report",
+                f"{settings.OTA_SERVER_URL}/api/ota/nas/report",
                 json={
                     "device_id": settings.OTA_DEVICE_ID,
                     "from_version": from_version,

@@ -93,7 +93,7 @@ log "OTA Server: $SERVER_URL | Device ID: $DEVICE_ID | Mode: $DEPLOY_MODE"
 
 log "Checking for updates..."
 
-RESPONSE=$(curl -s --max-time 15 -X POST "$SERVER_URL/api/ota/check" \
+RESPONSE=$(curl -s --max-time 15 -X POST "$SERVER_URL/api/ota/nas/check" \
   -H "Content-Type: application/json" \
   -d "{
     \"device_id\": $DEVICE_ID,
@@ -130,7 +130,7 @@ fi
 
 log "Fetching download info..."
 
-DOWNLOAD_INFO=$(curl -s --max-time 15 "$SERVER_URL/api/ota/download/$DEVICE_ID" 2>/dev/null) || {
+DOWNLOAD_INFO=$(curl -s --max-time 15 "$SERVER_URL/api/ota/nas/download/$DEVICE_ID" 2>/dev/null) || {
   log "ERROR: Cannot fetch download info"
   exit 1
 }
@@ -307,7 +307,7 @@ sudo rm -rf "${WEB_DIR}.bak" 2>/dev/null || true
 
 log "Reporting result: $STATUS"
 
-curl -s --max-time 15 -X POST "$SERVER_URL/api/ota/report" \
+curl -s --max-time 15 -X POST "$SERVER_URL/api/ota/nas/report" \
   -H "Content-Type: application/json" \
   -d "{
     \"device_id\": $DEVICE_ID,
