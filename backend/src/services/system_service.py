@@ -850,11 +850,14 @@ def apply_updates() -> dict:
             status = "completed"
             _report_update(current_version, target_version, target_hash, status)
 
+            current_hash = _get_current_git_hash()
             return {
                 "success": True,
-                "message": f"系統已從 {current_version} 更新至 {target_version}，服務即將重啟...",
+                "message": f"系統已從 {current_version}-{current_hash} 更新至 {target_version}-{target_hash}，服務即將重啟...",
                 "from_version": current_version,
+                "from_git_hash": current_hash,
                 "to_version": target_version,
+                "to_git_hash": target_hash,
                 "status": "completed",
             }
 
