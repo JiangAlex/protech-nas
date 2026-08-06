@@ -193,6 +193,10 @@
             <el-descriptions-item label="作業系統">{{ info.os }}</el-descriptions-item>
             <el-descriptions-item label="架構">{{ info.arch }}</el-descriptions-item>
             <el-descriptions-item label="運行時間">{{ info.uptime }}</el-descriptions-item>
+            <el-descriptions-item label="系統版本">{{ versionInfo.version || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="Git Hash">
+              <el-tag size="small" type="info" style="font-family: monospace;">{{ versionInfo.git_hash || '—' }}</el-tag>
+            </el-descriptions-item>
           </el-descriptions>
         </el-card>
       </el-col>
@@ -226,6 +230,9 @@ use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, LegendComponent
 const info = ref(null)
 const autoRefresh = ref(true)
 let timer = null
+
+// Version info
+const versionInfo = ref({ version: '', git_hash: '' })
 
 // Fans
 const fans = ref([])
@@ -309,6 +316,13 @@ async function fetchData() {
   } catch { /* handled by interceptor */ }
 }
 
+async function loadVersionInfo() {
+  try {
+    const res = await api.get('/api/health')
+    versionInfo.value = { version: res.data.version || '', git_hash: res.data.git_hash || '' }
+  } catch { /* handled */ }
+}
+
 function startTimer() {
   stopTimer()
   timer = setInterval(fetchData, 5000)
@@ -330,6 +344,7 @@ onMounted(() => {
   fetchData()
   loadHistory()
   loadFans()
+  loadVersionInfo()
   if (autoRefresh.value) startTimer()
 })
 

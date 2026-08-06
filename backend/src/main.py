@@ -1,6 +1,7 @@
 """ProTech NAS — FastAPI Backend Entry Point."""
 
 import os
+import subprocess
 from contextlib import asynccontextmanager
 
 import structlog
@@ -22,6 +23,48 @@ from .routers.backup import router as backup_router
 from .routers.remote import router as remote_router
 from .routers.notifications import router as notifications_router
 
+
+# ─── Version Info ─────────────────────────────────────────────────────────────
+
+def _read_version() -> str:
+    """Read version from VERSION file."""
+    # Try project root (relative to this file: src/main.py → ../../VERSION)
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    version_file = os.path.join(base, "..", "VERSION")
+    try:
+        with open(os.path.abspath(version_file)) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        pass
+    # Try OTA_APP_DIR
+    app_dir = os.getenv("OTA_APP_DIR", "/opt/protech-nas")
+    try:
+        with open(os.path.join(app_dir, "VERSION")) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return "unknown"
+
+
+def _read_git_hash() -> str:
+    """Read git short hash."""
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    project_root = os.path.abspath(os.path.join(base, ".."))
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+            cwd=project_root,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
+
+
+APP_VERSION = _read_version()
+APP_GIT_HASH = _read_git_hash()
+
 # Initialize structured logging
 setup_logging(
     log_level=os.getenv("LOG_LEVEL", "INFO"),
@@ -41,7 +84,7 @@ async def lifespan(app: FastAPI):
     from .scheduler import start_scheduler, shutdown_scheduler
     start_scheduler()
 
-    logger.info("app_started", version="0.1.0")
+    logger.info("app_started", version=APP_VERSION, git_hash=APP_GIT_HASH)
     yield
 
     # Shutdown scheduler gracefully
@@ -52,7 +95,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="ProTech NAS",
     description="NAS 管理系統 — 儲存 / 共享 / Docker / 使用者管理",
-    version="0.1.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -105,9 +148,9 @@ app.include_router(notifications_router)
 
 @app.get("/")
 def root():
-    return {"status": "ok", "service": "protech-nas", "version": "0.1.0"}
+    return {"status": "ok", "service": "protech-nas", "version": APP_VERSION, "git_hash": APP_GIT_HASH}
 
 
 @app.get("/api/health")
 def health():
-    return {"status": "healthy"}
+    return {"status": "healthy", "version": APP_VERSION, "git_hash": APP_GIT_HASH}
