@@ -1,0 +1,94 @@
+name: Build Frontend & Upload to OTA Server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'VERSION'
+      - '.github/workflows/build-and-upload.yml'
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Package artifact
+        working-directory: frontend
+        run: tar -czf frontend.tar.gz dist/
+
+      - name: Read version
+        id: version
+        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Read git hash
+        id: git_hash
+        run: echo "GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Upload to OTA Server
+        working-directory: frontend
+        run: |
+          echo "Uploading frontend.tar.gz for version ${{ steps.version.outputs.VERSION }}..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.OTA_SERVER_URL }}/api/ota/nas/artifacts/${{ steps.version.outputs.VERSION }}/upload" \
+            -F "file=@frontend.tar.gz")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "Response: $BODY"
+          echo "HTTP Code: $HTTP_CODE"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::Upload failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+      - name: Update firmware git hash on OTA Server
+        run: |
+          echo "Updating firmware record with git hash ${{ steps.git_hash.outputs.GIT_HASH }}..."
+          # Get firmware list and find the one matching our version
+          FIRMWARE_LIST=$(curl -s "${{ secrets.OTA_SERVER_URL }}/api/firmware?device_type_id=${{ vars.OTA_DEVICE_TYPE_ID || '1' }}")
+          FIRMWARE_ID=$(echo "$FIRMWARE_LIST" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          version = '${{ steps.version.outputs.VERSION }}'
+          for fw in data:
+              if fw['version'] == version:
+                  print(fw['id'])
+                  break
+          " 2>/dev/null || echo "")
+
+          if [ -n "$FIRMWARE_ID" ]; then
+            curl -s -X PUT "${{ secrets.OTA_SERVER_URL }}/api/firmware/$FIRMWARE_ID" \
+              -H "Content-Type: application/json" \
+              -d "{\"git_hash\": \"$(git rev-parse HEAD)\", \"git_hash_short\": \"${{ steps.git_hash.outputs.GIT_HASH }}\"}"
+            echo "Firmware $FIRMWARE_ID updated with hash ${{ steps.git_hash.outputs.GIT_HASH }}"
+          else
+            echo "::warning::Firmware version ${{ steps.version.outputs.VERSION }} not found on OTA Server. Skipping hash update."
+          fi
+
+      - name: Summary
+        run: |
+          echo "### ✅ Frontend Build & Upload Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | ${{ steps.version.outputs.VERSION }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Git Hash | ${{ steps.git_hash.outputs.GIT_HASH }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| OTA Server | ${{ secrets.OTA_SERVER_URL }} |" >> $GITHUB_STEP_SUMMARY
