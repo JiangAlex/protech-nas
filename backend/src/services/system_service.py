@@ -6,6 +6,23 @@ import time
 import psutil
 
 
+def _get_os_pretty_name() -> str:
+    """Get OS pretty name (e.g. 'Ubuntu 24.04.1 LTS') instead of kernel version."""
+    try:
+        info = platform.freedesktop_os_release()
+        return info.get("PRETTY_NAME", f"{platform.system()} {platform.release()}")
+    except (OSError, AttributeError):
+        # Fallback: read /etc/os-release directly
+        try:
+            with open("/etc/os-release") as f:
+                for line in f:
+                    if line.startswith("PRETTY_NAME="):
+                        return line.split("=", 1)[1].strip().strip('"')
+        except FileNotFoundError:
+            pass
+    return f"{platform.system()} {platform.release()}"
+
+
 def get_system_info() -> dict:
     """Get system overview: CPU, RAM, disk, network rate, disk IO, temperature, RAID, Docker."""
     # CPU
@@ -137,7 +154,7 @@ def get_system_info() -> dict:
 
     return {
         "hostname": platform.node(),
-        "os": f"{platform.system()} {platform.release()}",
+        "os": _get_os_pretty_name(),
         "arch": platform.machine(),
         "cpu": {
             "percent": cpu_percent,
