@@ -600,6 +600,105 @@ OTA_WEB_DIR=/var/www/protech-nas
 
 ---
 
+## 正式出貨規劃（方案 B：純 Artifact 部署）
+
+目前實驗階段使用 git clone（方案 A），正式 DUT 出貨將改為純 artifact 下載（方案 B）。
+
+### 差異
+
+| | 實驗階段（方案 A） | 正式出貨（方案 B） |
+|---|---|---|
+| DUT 上有 .git | ✅ | ❌ |
+| 更新方式 | git fetch + checkout | 下載 backend.tar.gz + frontend.tar.gz |
+| 需要連 GitHub | ✅ | ❌（只需連 OTA Server） |
+| 下載量 | 差異（小） | 全量（數 MB） |
+| 回滾方式 | git checkout old_hash | 保留前一版 tar 備份 |
+
+### 方案 B 的 OTA Server 需要額外存放
+
+```
+data/artifacts/{version}/
+├── backend.tar.gz      ← 完整 backend source + requirements
+└── frontend.tar.gz     ← 預建 dist
+```
+
+### 方案 B 的 DUT 更新流程
+
+1. 下載 `backend.tar.gz` → 解壓覆蓋 `/opt/protech-nas/backend/`
+2. 下載 `frontend.tar.gz` → 解壓到 `/var/www/protech-nas/`
+3. `pip install -r requirements.txt`
+4. `systemd-run --on-active=2s systemctl restart protech-nas`
+5. 回報結果
+
+### 方案 B 的 CI 需要
+
+- 打包 `backend.tar.gz`（排除 .venv、__pycache__、.git）
+- 打包 `frontend.tar.gz`（npm run build 後的 dist/）
+- 上傳兩個 artifact 到 OTA Server
+
+### 切換時間點
+
+當第一台正式 DUT 出貨時，實作方案 B 的 `apply_updates()` 邏輯（下載 + 解壓 + 覆蓋）。
+
+---
+
+## 目前實驗狀態記錄（2026-08-06）
+
+### 環境
+
+| 項目 | 資訊 |
+|------|------|
+| NAS (DUT) | 192.168.131.150 |
+| OTA Server | blog.softsnail.com:8060 |
+| GitHub Repo | https://github.com/JiangAlex/protech-nas.git |
+| Device ID | 1 |
+| Device Type | nas (id=1) |
+| Deploy Mode | systemd |
+| 目前版本 | 1.0.0 |
+
+### 已完成
+
+- [x] NAS 端 `check_updates()` 呼叫 OTA Server `/api/ota/nas/check`
+- [x] NAS 端 `apply_updates()` 完整 OTA 流程（git fetch → checkout → pip install → 下載 frontend → restart）
+- [x] 延遲 restart（`systemd-run --on-active=2s`）避免殺死自己
+- [x] 回滾機制（失敗自動 rollback）
+- [x] NAS 回報 MAC address
+- [x] 前端「系統更新」頁面顯示版本 + git hash + changelog
+- [x] Dashboard 顯示系統版本 + Git Hash
+- [x] `/api/health` 回傳動態 version + git_hash
+- [x] GitHub Actions CI 自動 build frontend + 上傳 artifact 到 OTA Server
+- [x] OTA Server 版本比對：version + git hash（支援 upgrade / downgrade）
+- [x] OTA Server 群發 API（`/api/ota/batch/push`）
+- [x] Device model 加入 SKU / customer_id / mac_address
+
+### 已知問題
+
+- CI 上傳 artifact 後，firmware 記錄的 `frontend_checksum` 需要同步更新（目前由 artifact_service 動態計算）
+- `--workers 2` 時 APScheduler 可能只在 parent process 跑，metrics 記錄可能不正常
+- 正式 DUT 不會有 `.git`，需要切方案 B（artifact 全量下載）
+
+### 測試步驟
+
+```bash
+# 1. 退版測試（模擬 DUT 落後）
+cd /home/alex_chiang/projects/protech-nas
+git checkout <old_hash>
+sudo systemctl restart protech-nas
+
+# 2. 到 Web UI「系統更新」→「檢查更新」→ 顯示有新版
+# 3. 「套用更新」→ 成功訊息 → 服務重啟 → 前端 + 後端更新
+
+# 4. 驗證
+curl -s http://192.168.131.150/api/health
+# 應顯示新的 version + git_hash
+
+# 5. 切回 main
+git checkout main
+sudo systemctl restart protech-nas
+```
+
+---
+
 ## 設計建議與規劃
 
 ### Artifact 存放策略
