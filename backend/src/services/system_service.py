@@ -824,28 +824,43 @@ def apply_updates() -> dict:
                     _report_update(current_version, target_version, target_hash, "rolled_back", error_message)
                     return {"success": False, "error": error_message}
 
-            # Restart service
-            rc, _, err = _sudo_run(["systemctl", "restart", "protech-nas"])
+            # Restart service (delayed — so this API call can return first)
+            # Use 'systemd-run' to schedule restart after 2 seconds
+            rc, _, err = _sudo_run(["systemd-run", "--on-active=2s", "systemctl", "restart", "protech-nas"])
             if rc != 0:
-                error_message = f"Service restart failed: {err.strip()}"
-                status = "failed"
-                # Rollback
-                _run(["git", "-C", app_dir, "checkout", old_hash])
-                _run([venv_pip, "install", "-r", req_file, "-q"], timeout=300)
-                if os.path.exists(web_backup):
-                    _sudo_run(["rm", "-rf", web_dir])
-                    _sudo_run(["mv", web_backup, web_dir])
+                # Fallback: try direct restart (will kill ourselves but update is done)
                 _sudo_run(["systemctl", "restart", "protech-nas"])
-                _report_update(current_version, target_version, target_hash, "rolled_back", error_message)
-                return {"success": False, "error": error_message}
 
             # Cleanup backup
             if os.path.exists(web_backup):
                 _sudo_run(["rm", "-rf", web_backup])
 
-        # Health check (wait for service restart)
+        # For systemd mode: we've done git checkout + pip install + frontend deploy
+        # and scheduled a delayed restart. Report success and return.
+        # Health check will be done by the OTA script separately if needed.
+        if deploy_mode != "docker":
+            # Update VERSION file
+            version_file = os.path.join(app_dir, "VERSION")
+            try:
+                with open(version_file, "w") as f:
+                    f.write(target_version + "\n")
+            except OSError:
+                pass
+
+            status = "completed"
+            _report_update(current_version, target_version, target_hash, status)
+
+            return {
+                "success": True,
+                "message": f"系統已從 {current_version} 更新至 {target_version}，服務即將重啟...",
+                "from_version": current_version,
+                "to_version": target_version,
+                "status": "completed",
+            }
+
+        # Health check (Docker mode only — container restart doesn't kill us)
         import time as _time
-        _time.sleep(3)
+        _time.sleep(5)
         rc, out, _ = _run(["curl", "-sf", "http://localhost:8000/api/health"], timeout=10)
         if rc != 0:
             error_message = "Health check failed after update"
