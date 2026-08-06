@@ -523,6 +523,83 @@ echo "更新結果: $STATUS"
 
 ---
 
+## 實作重點記錄
+
+### OTA Server API 路徑
+
+Server 的 NAS OTA 路由前綴為 `/api/ota/nas/`（非 `/api/ota/`）：
+
+| 用途 | 路徑 |
+|------|------|
+| 檢查更新 | `POST /api/ota/nas/check` |
+| 取得更新資訊 | `GET /api/ota/nas/download/{device_id}` |
+| 下載 Frontend Artifact | `GET /api/ota/nas/artifacts/{version}/frontend.tar.gz` |
+| 上傳 Frontend Artifact | `POST /api/ota/nas/artifacts/{version}/upload` |
+| 回報更新結果 | `POST /api/ota/nas/report` |
+
+### 版本比對邏輯
+
+Server 判定是否有更新時，比對 **version + git hash**：
+- version 相同 **且** git hash 相同 → 無更新
+- version 相同但 git hash 不同 → 有更新（支援 downgrade / hotfix）
+- version 不同 → 有更新
+
+以 Server 端的版本記錄為唯一真相來源，NAS 必須對齊 Server 指定的 git hash，不管是升級還是降級。
+
+### Systemd 模式的 Self-Restart 問題
+
+Backend 是 systemd service，`apply_updates()` 裡不能直接 `systemctl restart protech-nas`（會殺死自己，導致前端收不到回應）。
+
+**解決方案：** 使用 `systemd-run --on-active=2s` 延遲重啟：
+
+```python
+# 延遲 2 秒重啟，讓 API 先回應前端
+_sudo_run(["systemd-run", "--on-active=2s", "systemctl", "restart", "protech-nas"])
+```
+
+流程：
+1. git checkout + pip install + deploy frontend → 完成
+2. 更新 VERSION 檔案 + 回報 OTA Server
+3. **先回傳成功給前端**（「系統已更新，服務即將重啟...」）
+4. 延遲 2 秒後 systemd restart → 新 code 生效
+
+Docker 模式不受此限制（backend 在容器內，restart container 不會影響 API process）。
+
+### Frontend Artifact 上傳
+
+OTA Server 需要預先上傳每個版本的 `frontend.tar.gz`：
+
+```bash
+# 在開發機 / CI 上
+cd frontend && npm run build
+tar -czf frontend.tar.gz dist/
+
+# 上傳到 OTA Server
+curl -X POST http://blog.softsnail.com:8060/api/ota/nas/artifacts/{version}/upload \
+  -F "file=@frontend.tar.gz"
+```
+
+若 artifact 未上傳，NAS 更新時會因為下載 404 而失敗並回滾。
+
+### OTA Server 資料準備步驟
+
+1. **建立 Device Type**：`POST /api/device-types` → `{"name": "nas", "display_name": "ProTech NAS", "update_method": "git_pull"}`
+2. **註冊 Device**：`POST /api/devices` → `{"device_type_id": 1, "name": "...", "ip_address": "..."}`
+3. **建立 Firmware Version**：`POST /api/firmware` → `{"device_type_id": 1, "version": "1.0.0", "git_hash": "...", "is_latest": true, "is_stable": true}`
+4. **上傳 Frontend Artifact**：`POST /api/ota/nas/artifacts/1.0.0/upload`
+
+### NAS 端環境變數
+
+```env
+OTA_SERVER_URL=http://blog.softsnail.com:8060
+OTA_DEVICE_ID=1
+OTA_DEPLOY_MODE=systemd
+OTA_APP_DIR=/home/alex_chiang/projects/protech-nas
+OTA_WEB_DIR=/var/www/protech-nas
+```
+
+---
+
 ## 設計建議與規劃
 
 ### Artifact 存放策略
