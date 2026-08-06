@@ -151,22 +151,34 @@
         <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
           <el-button type="primary" :loading="updatesLoading" @click="checkUpdates">檢查更新</el-button>
           <el-button
-            v-if="updatesData && updatesData.upgradable_count > 0"
+            v-if="updatesData && updatesData.update_available"
             type="success"
             @click="applyUpdates"
             :loading="updatesApplying"
-          >套用所有更新</el-button>
-          <span v-if="updatesData" style="margin-left:8px; color:#909399;">
-            可升級套件：{{ updatesData.upgradable_count }} 個
-          </span>
+          >套用更新</el-button>
         </div>
 
-        <el-table v-if="updatesData && updatesData.packages?.length" :data="updatesData.packages" stripe>
-          <el-table-column prop="name" label="套件名稱" />
-          <el-table-column prop="current" label="目前版本" />
-          <el-table-column prop="available" label="可用版本" />
-        </el-table>
-        <el-empty v-else-if="updatesData && updatesData.upgradable_count === 0" description="系統已是最新版本" />
+        <el-descriptions v-if="updatesData" :column="2" border size="small" style="margin-bottom:16px;">
+          <el-descriptions-item label="目前版本">{{ updatesData.current_version }}</el-descriptions-item>
+          <el-descriptions-item label="最新版本">{{ updatesData.latest_version }}</el-descriptions-item>
+          <el-descriptions-item label="Git Hash">
+            <el-tag size="small" type="info" style="font-family:monospace;">{{ updatesData.latest_git_hash || '—' }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="發佈時間">{{ updatesData.released_at || '—' }}</el-descriptions-item>
+          <el-descriptions-item v-if="updatesData.update_available" label="狀態">
+            <el-tag type="warning" size="small">有新版本可用</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item v-else label="狀態">
+            <el-tag type="success" size="small">已是最新版本</el-tag>
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <el-card v-if="updatesData && updatesData.update_available && updatesData.changelog" shadow="never" style="margin-bottom:16px;">
+          <template #header><span style="font-size:14px;">更新日誌</span></template>
+          <pre style="white-space:pre-wrap; font-size:13px; margin:0;">{{ updatesData.changelog }}</pre>
+        </el-card>
+
+        <el-empty v-if="!updatesData" description="點擊「檢查更新」查看是否有新版本" />
       </el-tab-pane>
 
       <!-- Metrics -->
@@ -381,11 +393,11 @@ async function checkUpdates() {
 }
 
 async function applyUpdates() {
-  await ElMessageBox.confirm('確定要套用所有更新？這可能需要一段時間。', '確認更新', { type: 'warning' })
+  await ElMessageBox.confirm('確定要更新系統？更新過程中服務將短暫重啟。', '確認更新', { type: 'warning' })
   updatesApplying.value = true
   try {
     const res = await api.post('/api/system/updates/apply', {})
-    ElMessage.success(res.data.message || `已更新 ${res.data.updated_count} 個套件`)
+    ElMessage.success(res.data.message || '系統更新完成')
     updatesData.value = null
   } catch { /* handled */ }
   finally { updatesApplying.value = false }
