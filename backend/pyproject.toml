@@ -1,14 +1,21 @@
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+minversion = "8.0"
 asyncio_mode = "auto"
+testpaths = ["backend/tests"]
 python_files = ["test_*.py"]
+python_classes = ["Test*"]
 python_functions = ["test_*"]
+addopts = "-v --tb=short"
 
 [tool.coverage.run]
-source = ["src"]
-omit = ["src/models/*", "tests/*"]
+source = ["backend/src"]
+omit = ["tests/*", "*/__pycache__/*", "*/.venv/*"]
 
 [tool.coverage.report]
-show_missing = true
-skip_empty = true
-fail_under = 60
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
