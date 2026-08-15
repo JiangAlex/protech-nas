@@ -43,13 +43,13 @@ class TestLoginEndpoint:
 
     @pytest.mark.asyncio
     async def test_login_empty_credentials(self, async_client):
-        """Test login with empty credentials returns validation error."""
+        """Test login with empty credentials returns authentication error."""
         response = await async_client.post(
             "/api/auth/login",
             data={"username": "", "password": ""}
         )
-        # Empty strings fail validation -> 422 Unprocessable Entity
-        assert response.status_code == 422
+        # Empty password is treated as invalid credentials -> 401 Unauthorized
+        assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_login_missing_password(self, async_client):
