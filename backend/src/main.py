@@ -22,6 +22,7 @@ from .routers.network import router as network_router
 from .routers.backup import router as backup_router
 from .routers.remote import router as remote_router
 from .routers.notifications import router as notifications_router
+from .routers.versioning import router as versioning_router
 
 
 # ─── Version Info ─────────────────────────────────────────────────────────────
@@ -144,6 +145,7 @@ app.include_router(network_router)
 app.include_router(backup_router)
 app.include_router(remote_router)
 app.include_router(notifications_router)
+app.include_router(versioning_router)
 
 
 @app.get("/")
