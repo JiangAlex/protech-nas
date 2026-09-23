@@ -1,3 +1,8 @@
+# Python dependencies for ProTech NAS backend
+# NOTE: System-level packages (certbot, btrfs-progs, wireguard-tools, mdadm)
+# are listed in SYSTEM_PACKAGES.txt — install those separately via your OS
+# package manager.
+
 fastapi==0.115.6
 uvicorn==0.34.0
 python-dotenv==1.0.1

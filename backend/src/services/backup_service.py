@@ -11,10 +11,11 @@ from datetime import datetime
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-# Use env var or fixed path to avoid ~ resolving to different users (root vs normal user)
+# Default to a user-writable path (consistent with notification/remote services).
+# Override with PROTECH_BACKUP_CONFIG_DIR for deployments using a fixed system path.
 BACKUP_CONFIG_DIR = os.environ.get(
     "PROTECH_BACKUP_CONFIG_DIR",
-    "/var/lib/protech-nas/backup"
+    os.path.join(os.path.expanduser("~"), ".protech-nas/backup"),
 )
 BACKUP_TASKS_FILE = os.path.join(BACKUP_CONFIG_DIR, "tasks.json")
 

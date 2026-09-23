@@ -8,6 +8,7 @@ __pycache__/
 .vscode
 .DS_Store
 backend/data/
+.worktrees/
 
 # Local docs (not tracked)
 docs/*.md

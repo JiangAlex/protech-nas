@@ -80,18 +80,55 @@ def get_raid_status() -> dict:
         return {"success": False, "error": str(e)}
 
 
+def _detect_fs_type(device: str) -> str:
+    """Detect the filesystem type of a device. Returns '' if unknown.
+
+    Uses lsblk (no root required) which is consistent with list_disks().
+    """
+    rc, out, err = _run(["lsblk", "-no", "FSTYPE", device])
+    if rc == 0:
+        # A device may have multiple lines (parent + children); take the first
+        # non-empty value, which corresponds to the queried partition.
+        for line in out.splitlines():
+            val = line.strip()
+            if val:
+                return val
+    return ""
+
+
 def mount_disk(device: str, mount_point: str, fs_type: str = "auto") -> dict:
-    """Mount a device to a mount point."""
+    """Mount a device to a mount point.
+
+    When fs_type is "auto" (or empty), the real filesystem is detected via blkid
+    so that filesystems needing a specific helper (e.g. NTFS -> ntfs-3g) mount
+    correctly instead of failing with a wrong-fs-type error.
+    """
     # Create mount point if not exists
     _sudo_run(["mkdir", "-p", mount_point])
+
+    # Resolve the filesystem type
+    resolved_fs = fs_type
+    if not fs_type or fs_type == "auto":
+        resolved_fs = _detect_fs_type(device)
+
+    # Map filesystems to the correct mount driver / helper
+    if resolved_fs == "ntfs":
+        resolved_fs = "ntfs-3g"
+
     # Build mount command
-    if fs_type and fs_type != "auto":
-        cmd = ["mount", "-t", fs_type, device, mount_point]
+    if resolved_fs:
+        cmd = ["mount", "-t", resolved_fs, device, mount_point]
     else:
+        # Could not detect a filesystem; let the kernel try to auto-detect.
         cmd = ["mount", device, mount_point]
+
     rc, out, err = _sudo_run(cmd)
     if rc != 0:
-        return {"success": False, "error": err.strip()}
+        error = err.strip()
+        # Provide an actionable hint when the NTFS helper is missing.
+        if resolved_fs == "ntfs-3g" and ("helper" in error or "wrong fs type" in error):
+            error += " (NTFS mount requires the 'ntfs-3g' package: sudo apt install ntfs-3g)"
+        return {"success": False, "error": error}
     return {"success": True, "message": f"Mounted {device} to {mount_point}"}
 
 

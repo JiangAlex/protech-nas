@@ -61,6 +61,60 @@
 
 ## Quick Start
 
+### 方式一：腳本安裝（推薦）
+
+```bash
+# 1. Clone
+git clone https://github.com/JiangAlex/protech-nas.git
+cd protech-nas
+
+# 2. 安裝系統依賴（samba / nfs / docker / node.js 20.x / smartmontools ...）
+./scripts/install.sh
+# 提示：安裝後需登出再登入，docker 群組權限才會生效
+
+# 3. 安裝專案依賴（建立 Python venv、npm install、build 前端）
+./scripts/setup_deps.sh
+
+# 4. 設定環境變數
+cp backend/.env.example backend/.env   # 編輯：務必設定 SECRET_KEY
+
+# 5. 啟動（開發模式）
+cd backend && source .venv/bin/activate
+uvicorn src.main:app --reload --port 8000   # 後端
+cd ../frontend && npm run dev                # 前端（另開終端）
+
+# 6. Access
+# Web UI:  http://localhost:5173
+# API Doc: http://localhost:8000/docs
+# Login:   admin / admin123
+```
+
+> #### 為什麼安裝後需登出再登入，docker 群組權限才會生效？
+>
+> `install.sh` 最後會執行 `sudo usermod -aG docker $USER` 把目前使用者加入 `docker` 群組。
+> Docker daemon 透過 Unix socket `/var/run/docker.sock` 溝通，該 socket 擁有者為 `root`、
+> 群組為 `docker`（權限 `srw-rw----`），只有 root 或 docker 群組成員能存取，否則執行 `docker ps`
+> 會出現 `permission denied while trying to connect to the Docker daemon socket`。
+>
+> 關鍵在於 **群組成員資格是在「登入」當下載入 session 的**：登入時系統讀取 `/etc/group`，
+> 把所屬群組附加到 session，並由 shell 及其子行程繼承。`usermod` 只修改了 `/etc/group` 檔案，
+> 不會更新「當前正在運行」的 session，因此需要登出再登入（重建 session、重新讀取群組）才會生效。
+>
+> ```bash
+> # 驗證：/etc/group 已更新，但目前 session 尚未生效時，兩者輸出會不一致
+> getent group docker   # 檔案設定 — usermod 後立即包含你的帳號
+> groups                # 目前 session 生效中的群組 — 重新登入後才會出現 docker
+> ```
+>
+> 不想登出，可用以下方式在新 session 套用群組（僅該 shell 生效）：
+>
+> ```bash
+> newgrp docker         # 開啟一個帶 docker 群組的子 shell
+> # 或重新建立一次 SSH 連線
+> ```
+
+### 方式二：手動安裝
+
 ```bash
 # 1. Clone
 git clone https://github.com/JiangAlex/protech-nas.git
@@ -89,27 +143,35 @@ npm run dev
 
 ## Production Deployment
 
+### 方式一：一鍵部署（推薦）
+
+```bash
+# 前置：先完成 setup_deps.sh 並設定好 backend/.env
+# deploy.sh 會自動完成：build 前端、部署到 web root、安裝 systemd service、
+# 設定 Nginx、設定 sudoers、開機自動啟動
+sudo NAS_USER=$USER ./scripts/deploy.sh
+
+# 部署後常用指令
+systemctl status protech-nas
+journalctl -u protech-nas -f
+systemctl restart protech-nas
+```
+
+### 方式二：手動部署
+
 ```bash
 # Backend — systemd service
 sudo cp scripts/protech-nas.service /etc/systemd/system/
+sudo systemctl daemon-reload
 sudo systemctl enable --now protech-nas
 
 # Frontend — build & serve with Nginx
 cd frontend && npm run build
-sudo cp -r dist/ /var/www/protech-nas/
-# Configure Nginx to serve /var/www/protech-nas/ and proxy /api/* to localhost:8000
-```
-
-## Development
-
-```bash
-# Backend (auto-reload)
-cd backend && source .venv/bin/activate
-uvicorn src.main:app --reload --port 8000
-
-# Frontend (HMR)
-cd frontend && npm run dev
-# → http://localhost:5173
+sudo cp -r dist/* /var/www/protech-nas/
+sudo cp scripts/protech-nas-nginx.conf /etc/nginx/sites-available/protech-nas
+sudo ln -sf /etc/nginx/sites-available/protech-nas /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+# Nginx 提供 /var/www/protech-nas/ 並反向代理 /api/* 至 localhost:8000
 ```
 
 ## Project Structure
@@ -144,6 +206,7 @@ protech-nas/
 │   │       ├── network_service.py
 │   │       ├── backup_service.py
 │   │       ├── remote_service.py
+│   │       ├── tailscale_service.py
 │   │       └── notification_service.py
 │   ├── requirements.txt
 │   ├── .env.example
@@ -161,14 +224,17 @@ protech-nas/
 │   ├── package.json
 │   └── vite.config.js
 ├── docs/
-│   ├── ToDo-API.md              # API endpoint specs
-│   ├── ToDo-Services.md         # Service function specs
-│   ├── ToDo-Frontend.md         # Frontend feature specs
-│   ├── Hermes-Auto-Runner.md    # Auto-execution setup
-│   └── hw_specs.md              # Hardware specifications
+│   ├── ToDo-Phases.md           # Development phase specs
+│   ├── versioning-convention.md # Version numbering rules
+│   └── UserGuide.md             # User guide
 ├── scripts/
 │   ├── install.sh               # System dependencies
-│   └── setup_deps.sh            # Project dependencies
+│   ├── setup_deps.sh            # Project dependencies
+│   ├── deploy.sh                # One-click production deployment
+│   ├── ota-update.sh            # OTA update
+│   ├── protech-nas.service      # systemd service unit
+│   ├── protech-nas-nginx.conf   # Nginx site config
+│   └── sudoers-protech-nas      # sudoers rules for privileged commands
 └── README.md
 ```
 
@@ -332,134 +398,15 @@ Password: admin123
 
 - **OS:** Debian 12 / Ubuntu 22.04+
 - **Python:** 3.11+
-- **Node.js:** 18+
+- **Node.js:** 20.x (install.sh 安裝；18+ 亦可)
 - **RAM:** 512 MB (minimum), 2 GB (recommended)
 - **Disk:** 200 MB (application only)
 - **Optional:** Docker, smartmontools, lm-sensors, WireGuard, Nginx, certbot
 
 ## Optional System Dependencies
 
-部分功能需要安裝額外系統套件才能正常運作：
-
-```bash
-# 儲存管理 — S.M.A.R.T. 健康監控（需要 root 執行 smartctl）
-sudo apt install smartmontools
-
-# 儲存管理 — exFAT 格式化支援
-sudo apt install exfatprogs
-
-# 系統管理 — CPU/磁碟溫度監控
-sudo apt install lm-sensors
-sudo sensors-detect  # 偵測硬體感測器
-
-# 網路管理 — 診斷工具
-sudo apt install traceroute dnsutils
-
-# 遠端存取 — VPN
-sudo apt install wireguard
-
-# 遠端存取 — SSL 憑證
-sudo apt install certbot
-
-# 遠端存取 — 反向代理
-sudo apt install nginx
-
-# Docker 管理
-sudo apt install docker.io docker-compose-v2
-
-# 備份 — Btrfs 快照（若使用 Btrfs 檔案系統）
-sudo apt install btrfs-progs
-```
-
-> ⚠️ **權限注意：** 部分操作需要 root 權限（格式化、SMART 自檢、服務管理、電源控制等）。
-> 開發環境可用 `sudo` 啟動 uvicorn，生產環境建議透過 systemd service 以適當權限運行。
-
-### Sudoers 設定（免密碼執行特權指令）
-
-Backend 以一般使用者身份運行時，`smartctl`、`shutdown`、`mkfs` 等指令需要 root 權限。
-專案已透過 `_sudo_run()` 自動加上 `sudo` 前綴，但需要設定 sudoers 允許免密碼執行：
-
-```bash
-# 使用專案提供的設定檔（將檔案內的 "nas" 替換為實際執行 backend 的使用者）
-sudo sed 's/nas/your_user/g' scripts/sudoers-protech-nas | sudo tee /etc/sudoers.d/protech-nas
-sudo chmod 0440 /etc/sudoers.d/protech-nas
-sudo visudo -c  # 驗證語法
-```
-
-設定檔包含所有功能所需的特權指令（SMART、格式化、電源、服務管理、網路、VPN 等）。
-詳見 `scripts/sudoers-protech-nas`。
-
-<details>
-<summary>📄 scripts/sudoers-protech-nas 完整內容</summary>
-
-```sudoers
-# /etc/sudoers.d/protech-nas
-# Allow the ProTech NAS backend user to run privileged commands without password.
-#
-# Replace "nas" with the actual user running the backend service.
-# ──────────────────────────────────────────────────────────────────────────────
-
-# Storage — S.M.A.R.T. health monitoring
-nas ALL=(ALL) NOPASSWD: /usr/sbin/smartctl
-
-# Storage — Disk formatting
-nas ALL=(ALL) NOPASSWD: /sbin/mkfs.ext4, /sbin/mkfs.xfs, /sbin/mkfs.btrfs, /usr/sbin/mkfs.exfat
-
-# Storage — Mount/Unmount
-nas ALL=(ALL) NOPASSWD: /bin/mount, /bin/umount
-
-# Storage — Partition management
-nas ALL=(ALL) NOPASSWD: /sbin/parted
-
-# Storage — RAID management
-nas ALL=(ALL) NOPASSWD: /sbin/mdadm
-
-# System — Power control
-nas ALL=(ALL) NOPASSWD: /sbin/shutdown, /sbin/reboot
-
-# System — Service management
-nas ALL=(ALL) NOPASSWD: /bin/systemctl
-
-# System — Hardware info
-nas ALL=(ALL) NOPASSWD: /usr/sbin/dmidecode
-
-# System — Package updates
-nas ALL=(ALL) NOPASSWD: /usr/bin/apt
-
-# Network — Interface configuration
-nas ALL=(ALL) NOPASSWD: /usr/sbin/netplan, /sbin/ip
-
-# Network — Firewall
-nas ALL=(ALL) NOPASSWD: /usr/sbin/iptables, /usr/sbin/nft
-
-# Shares — Samba
-nas ALL=(ALL) NOPASSWD: /usr/sbin/smbd, /usr/bin/smbpasswd, /usr/bin/testparm
-
-# Shares — NFS
-nas ALL=(ALL) NOPASSWD: /usr/sbin/exportfs
-
-# Shares — ACL
-nas ALL=(ALL) NOPASSWD: /usr/bin/setfacl, /usr/bin/getfacl
-
-# Remote — VPN (WireGuard)
-nas ALL=(ALL) NOPASSWD: /usr/bin/wg, /usr/bin/wg-quick
-
-# Remote — SSL (Certbot)
-nas ALL=(ALL) NOPASSWD: /usr/bin/certbot
-
-# Remote — Reverse proxy
-nas ALL=(ALL) NOPASSWD: /usr/sbin/nginx
-
-# Backup — Btrfs snapshots
-nas ALL=(ALL) NOPASSWD: /sbin/btrfs
-
-# User management
-nas ALL=(ALL) NOPASSWD: /usr/sbin/useradd, /usr/sbin/userdel, /usr/sbin/usermod, /usr/sbin/groupadd, /usr/sbin/groupdel, /usr/bin/gpasswd, /usr/bin/chpasswd, /usr/sbin/setquota, /usr/sbin/repquota
-```
-
-</details>
-
-> 💡 若未設定 sudoers，需要 root 權限的功能會出現 `Permission denied` 或 `Interactive authentication required` 錯誤。
+部分功能需要安裝額外系統套件才能正常運作。使用 `./scripts/install.sh` 會一次裝好核心與常用套件；
+若手動安裝，下表列出各功能對應的套件與是否需要 root 權限：
 
 | 功能 | 需要套件 | 需要 root |
 |------|----------|-----------|
@@ -478,10 +425,16 @@ nas ALL=(ALL) NOPASSWD: /usr/sbin/useradd, /usr/sbin/userdel, /usr/sbin/usermod,
 | 電源控制 | — (內建 shutdown) | ✅ |
 | Btrfs 快照 | btrfs-progs | ✅ |
 
-## Communication
-
-- **技術解釋**使用「繁體中文」
-- **變數名稱**、**函數名稱**與**代碼註釋**必須保持英文
+> ⚠️ **權限注意：** 需要 root 的操作，backend 已透過 `_sudo_run()` 自動加上 `sudo` 前綴。
+> 以一般使用者運行時需設定免密碼 sudoers（`scripts/deploy.sh` 會自動完成，或手動套用）：
+>
+> ```bash
+> sudo sed 's/nas/your_user/g' scripts/sudoers-protech-nas | sudo tee /etc/sudoers.d/protech-nas
+> sudo chmod 0440 /etc/sudoers.d/protech-nas && sudo visudo -c
+> ```
+>
+> 未設定時，需 root 的功能會出現 `Permission denied` 或 `Interactive authentication required`。
+> 完整規則見 `scripts/sudoers-protech-nas`。
 
 ## License
 

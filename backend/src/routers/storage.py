@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/storage", tags=["storage"])
 class MountRequest(BaseModel):
     device: str
     mount_point: str
-    fs_type: Optional[str] = "ext4"
+    fs_type: Optional[str] = "auto"
 
 
 @router.get("/disks")

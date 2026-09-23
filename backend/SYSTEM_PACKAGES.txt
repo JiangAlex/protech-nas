@@ -1,0 +1,8 @@
+# System-level package dependencies
+# These are not pip-installable — install via your OS package manager.
+# E.g.: sudo apt install certbot btrfs-progs wireguard-tools mdadm
+
+certbot
+btrfs-progs
+wireguard-tools
+mdadm
