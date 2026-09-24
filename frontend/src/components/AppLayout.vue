@@ -17,6 +17,7 @@
         <el-menu-item index="/files"><el-icon><Document /></el-icon><span>檔案管理</span></el-menu-item>
         <el-menu-item index="/storage"><el-icon><Coin /></el-icon><span>儲存管理</span></el-menu-item>
         <el-menu-item index="/shares"><el-icon><FolderOpened /></el-icon><span>檔案共享</span></el-menu-item>
+        <el-menu-item index="/printers"><el-icon><Printer /></el-icon><span>印表機</span></el-menu-item>
         <el-menu-item index="/docker"><el-icon><Box /></el-icon><span>Docker</span></el-menu-item>
         <el-menu-item index="/network"><el-icon><Connection /></el-icon><span>網路</span></el-menu-item>
         <el-menu-item index="/backup"><el-icon><UploadFilled /></el-icon><span>備份</span></el-menu-item>

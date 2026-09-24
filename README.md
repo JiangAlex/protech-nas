@@ -8,6 +8,7 @@
 - **檔案管理器** — Web 檔案瀏覽 / 上傳 / 下載 / 搬移 / 壓縮 / 分享連結
 - **儲存管理** — 磁碟列表、格式化、S.M.A.R.T. 健康監控、RAID 狀態、掛載操作
 - **檔案共享** — SMB (Samba) + NFS 共享資料夾 CRUD + ACL 權限管理
+- **印表機分享** — USB 印表機透過 CUPS/IPP 分享到網路（偵測 / 新增 / 分享 / 佇列 / 測試頁）
 - **Docker 管理** — 容器建立/啟停/重啟/刪除、映像管理、Networks/Volumes、Compose 部署
 - **使用者管理** — 系統帳號 + Samba 帳號 + 群組 + 配額 + 2FA (TOTP)
 - **系統管理** — 日誌查看、服務管理、排程任務、電源控制、系統更新
@@ -174,6 +175,43 @@ sudo nginx -t && sudo systemctl reload nginx
 # Nginx 提供 /var/www/protech-nas/ 並反向代理 /api/* 至 localhost:8000
 ```
 
+### 開機自啟 & 免 port 存取
+
+開機自啟由 **systemd** 負責：service 一旦 `enable`，開機時便會自動啟動。
+「免 port 存取」（直接 `http://<IP>` 不加 `:5173`）則由 **Nginx（listen 80）** 達成——
+Nginx 提供前端靜態檔並反向代理 `/api/*` 至後端的 8000 port。
+
+| 腳本 | 內容 | 開機自啟範圍 | 免 port 存取 |
+|------|------|-------------|-------------|
+| `scripts/deploy.sh` | 後端 + 前端 build + Nginx(80) | 後端 + Nginx | ✅ `http://<IP>` |
+| `scripts/deploy-service.sh` | 只安裝後端 systemd service | 後端(8000) | ❌ 需 `http://<IP>:8000` |
+
+**設定（免 port，推薦）：** 直接跑 `deploy.sh`，內部會 `systemctl enable protech-nas` 與
+`systemctl enable nginx`，兩者皆設為開機自啟：
+
+```bash
+sudo apt install nginx                 # 提供 80 port（免 port 存取的前提）
+sudo NAS_USER=$USER ./scripts/deploy.sh
+```
+
+**只需後端開機自啟（不設 Nginx）：**
+
+```bash
+sudo ./scripts/deploy-service.sh       # 路徑自適應，僅安裝並啟用後端 service
+```
+
+**驗證是否會開機自啟**（`enabled` 代表開機會自動啟動）：
+
+```bash
+systemctl is-enabled protech-nas       # 預期：enabled
+systemctl is-enabled nginx             # 預期：enabled（僅 deploy.sh 方式）
+systemctl status protech-nas           # 預期：active (running)
+sudo systemctl disable protech-nas     # 取消開機自啟
+```
+
+> ⚠️ 前置條件：`backend/.venv` 已建立（`setup_deps.sh`）、`backend/.env` 已設定，
+> 否則 systemd service 會啟動失敗。腳本會在部署前檢查並提示。
+
 ## Project Structure
 
 ```
@@ -183,10 +221,11 @@ protech-nas/
 │   │   ├── main.py              # FastAPI app + router mounting
 │   │   ├── auth.py              # JWT auth + login endpoint
 │   │   ├── config.py            # Environment settings
-│   │   ├── routers/             # 12 API routers (92 endpoints)
+│   │   ├── routers/             # 13 API routers
 │   │   │   ├── dashboard.py
 │   │   │   ├── storage.py
 │   │   │   ├── shares.py
+│   │   │   ├── printers.py
 │   │   │   ├── files.py
 │   │   │   ├── docker_mgr.py
 │   │   │   ├── users.py
@@ -199,6 +238,7 @@ protech-nas/
 │   │       ├── storage_service.py
 │   │       ├── samba_service.py
 │   │       ├── nfs_service.py
+│   │       ├── printer_service.py
 │   │       ├── file_service.py
 │   │       ├── docker_service.py
 │   │       ├── user_service.py
@@ -231,6 +271,7 @@ protech-nas/
 │   ├── install.sh               # System dependencies
 │   ├── setup_deps.sh            # Project dependencies
 │   ├── deploy.sh                # One-click production deployment
+│   ├── deploy-service.sh        # Backend-only systemd autostart
 │   ├── ota-update.sh            # OTA update
 │   ├── protech-nas.service      # systemd service unit
 │   ├── protech-nas-nginx.conf   # Nginx site config
@@ -288,6 +329,18 @@ protech-nas/
 | POST | `/api/shares/nfs` | 建立 NFS |
 | PUT | `/api/shares/nfs` | 編輯 NFS |
 | GET | `/api/shares/nfs/status` | NFS 狀態 |
+
+### Printers (8)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/printers` | 印表機列表 |
+| GET | `/api/printers/discover` | 偵測已連接裝置 |
+| POST | `/api/printers` | 新增並分享 |
+| PUT | `/api/printers/{name}/share` | 啟用/停用分享 |
+| DELETE | `/api/printers/{name}` | 移除印表機 |
+| GET | `/api/printers/{name}/jobs` | 列印佇列 |
+| POST | `/api/printers/jobs/{job_id}/cancel` | 取消工作 |
+| POST | `/api/printers/{name}/test` | 列印測試頁 |
 
 ### Docker (18)
 | Method | Path | Description |
@@ -420,6 +473,7 @@ Password: admin123
 | WireGuard VPN | wireguard | ✅ |
 | SSL 憑證 | certbot | ✅ |
 | 反向代理 | nginx | ✅ |
+| 印表機分享 | cups, cups-client（Epson 可加 printer-driver-escpr） | ✅ |
 | Docker | docker.io | docker group |
 | 服務管理 | — (內建 systemctl) | ✅ |
 | 電源控制 | — (內建 shutdown) | ✅ |

@@ -68,3 +68,6 @@ nas ALL=(ALL) NOPASSWD: /sbin/btrfs
 
 # User management
 nas ALL=(ALL) NOPASSWD: /usr/sbin/useradd, /usr/sbin/userdel, /usr/sbin/usermod, /usr/sbin/groupadd, /usr/sbin/groupdel, /usr/bin/gpasswd, /usr/bin/chpasswd, /usr/sbin/setquota, /usr/sbin/repquota
+
+# Printers — CUPS/IPP network sharing
+nas ALL=(ALL) NOPASSWD: /usr/sbin/lpadmin, /usr/sbin/cupsenable, /usr/sbin/cupsaccept, /usr/bin/cancel

@@ -15,6 +15,7 @@ const routes = [
       { path: 'files', name: 'Files', component: () => import('../views/Files.vue') },
       { path: 'storage', name: 'Storage', component: () => import('../views/Storage.vue') },
       { path: 'shares', name: 'Shares', component: () => import('../views/Shares.vue') },
+      { path: 'printers', name: 'Printers', component: () => import('../views/Printers.vue') },
       { path: 'docker', name: 'Docker', component: () => import('../views/Docker.vue') },
       { path: 'users', name: 'Users', component: () => import('../views/Users.vue') },
       { path: 'system', name: 'System', component: () => import('../views/System.vue') },
