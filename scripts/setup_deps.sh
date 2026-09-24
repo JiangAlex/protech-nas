@@ -2,6 +2,20 @@
 # ProTech NAS — Project Dependencies Setup
 set -e
 
+# ─── Guard: must NOT run as root/sudo ────────────────────────────────────────
+# Running this under sudo makes the Python venv and the frontend build output
+# (frontend/dist, incl. the PWA service worker sw.js) owned by root. A later
+# non-root `npm run build` / deploy then fails with EACCES when trying to
+# overwrite those files. venv creation and frontend build must run as the
+# normal user; only copying artifacts into system paths (handled by deploy.sh)
+# needs sudo.
+if [ "$(id -u)" -eq 0 ]; then
+    echo "✗ Do NOT run setup_deps.sh as root/sudo." >&2
+    echo "  It would make .venv and frontend/dist root-owned and break later builds." >&2
+    echo "  Run it as your normal user:  ./scripts/setup_deps.sh" >&2
+    exit 1
+fi
+
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "=== ProTech NAS — Setting Up Project Dependencies ==="

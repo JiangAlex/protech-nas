@@ -42,7 +42,7 @@
                     │ REST API (/api/*)
                     ▼
 ┌─────────────────────────────────────────────────┐
-│             FastAPI Backend (92 endpoints)        │
+│             FastAPI Backend (100 endpoints)       │
 │  ┌──────┐ ┌─────┐ ┌─────┐ ┌────┐ ┌────┐ ┌───┐ │
 │  │Files │ │Store│ │Share│ │Dock│ │Sys │ │Net│  │
 │  │Backup│ │Users│ │Remot│ │Noti│ │Auth│ │   │  │
@@ -212,6 +212,40 @@ sudo systemctl disable protech-nas     # 取消開機自啟
 > ⚠️ 前置條件：`backend/.venv` 已建立（`setup_deps.sh`）、`backend/.env` 已設定，
 > 否則 systemd service 會啟動失敗。腳本會在部署前檢查並提示。
 
+## 印表機分享設定（CUPS/IPP）
+
+將接在 NAS 上的 USB 印表機（如 Epson）透過 CUPS/IPP 分享到區域網路，
+區網內的 Windows / macOS / Linux 可經 IPP / AirPrint 連線列印。
+
+```bash
+# 1. 安裝 CUPS 列印系統（Epson 建議加裝 ESC/P-R 驅動）
+sudo apt install cups cups-client
+sudo apt install printer-driver-escpr        # Epson（可選）
+
+# 2. 更新專案（取得印表機功能）
+cd ~/protech-nas    # 或你的專案路徑
+git pull
+
+# 3. 重新 build 前端（前端有新增「印表機」頁）
+./scripts/setup_deps.sh
+
+# 4. 執行測試（預期 17 passed）
+cd backend && source .venv/bin/activate
+python -m pytest tests/test_printers.py -q
+
+# 5. 重新套用 sudoers（新增 lpadmin/cupsenable/cupsaccept/cancel）
+#    deploy.sh 會自動處理；手動套用：
+sudo sed 's/nas/your_user/g' scripts/sudoers-protech-nas | sudo tee /etc/sudoers.d/protech-nas
+sudo chmod 0440 /etc/sudoers.d/protech-nas && sudo visudo -c
+
+# 6. 重啟後端服務
+sudo systemctl restart protech-nas
+```
+
+完成後於 Web UI 的「印表機」頁操作：**偵測 USB 印表機 → 新增並分享 → 列出/測試頁/佇列管理**。
+
+> 💡 USB 印表機需已插上 NAS。CUPS 也提供自身管理介面於 `http://<NAS-IP>:631`。
+
 ## Project Structure
 
 ```
@@ -279,7 +313,7 @@ protech-nas/
 └── README.md
 ```
 
-## API Endpoints (92 total)
+## API Endpoints (100 total)
 
 ### Core
 | Method | Path | Description |
