@@ -30,7 +30,24 @@ fi
 if [ ! -f "$BACKEND_DIR/.env" ]; then
     echo "  ⚠ Backend .env not found. Creating from .env.example..."
     cp "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
-    echo "  ⚠ Please edit $BACKEND_DIR/.env and set SECRET_KEY!"
+fi
+
+# Auto-generate SECRET_KEY only if missing / still the insecure default.
+# Idempotent: an already-set custom key is left untouched, so re-running
+# deploy.sh will NOT rotate the key (which would invalidate all JWTs / log
+# everyone out).
+current_key="$(grep -E '^SECRET_KEY=' "$BACKEND_DIR/.env" | head -n1 | cut -d= -f2-)"
+if [ -z "$current_key" ] || [ "$current_key" = "change-me-to-random-secret" ]; then
+    new_key="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+    if grep -qE '^SECRET_KEY=' "$BACKEND_DIR/.env"; then
+        # Replace existing line (use | as sed delimiter; hex key has no |)
+        sed -i "s|^SECRET_KEY=.*|SECRET_KEY=$new_key|" "$BACKEND_DIR/.env"
+    else
+        echo "SECRET_KEY=$new_key" >> "$BACKEND_DIR/.env"
+    fi
+    echo "  ✓ Generated a new random SECRET_KEY."
+else
+    echo "  ✓ SECRET_KEY already set (kept as-is)."
 fi
 
 if ! command -v nginx &> /dev/null; then

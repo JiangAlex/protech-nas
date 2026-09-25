@@ -62,36 +62,76 @@
 
 ## Quick Start
 
-### 方式一：腳本安裝（推薦）
+整個流程分成兩步：**① 安裝**（每台機器只做一次）→ **② 選一種方式運行**
+（開發模式 or 生產部署）。三個腳本的分工如下：
+
+| 腳本 | 何時跑 | 身分 | 做什麼 |
+|------|--------|------|--------|
+| `scripts/install.sh` | 安裝步驟 1 | `sudo` | 裝系統套件（samba / nfs / docker / node.js / nginx…） |
+| `scripts/setup_deps.sh` | 安裝步驟 2 | **一般使用者**（勿 sudo） | 建 Python venv、npm install、build 前端 |
+| `scripts/deploy.sh` | 生產部署 | `sudo` | build 前端 + Nginx + systemd + sudoers + **開機自啟** |
+
+> ⚠️ **兩個常見陷阱（先看再動手）**
+> 1. **`setup_deps.sh` 不要加 `sudo`** — 否則 `.venv` 與 `frontend/dist` 會變成 root 擁有，之後 build/部署會 `EACCES` 失敗。腳本本身也會擋 root。
+> 2. **`setup_deps.sh` 與 `deploy.sh` 必須在「同一份專案目錄」下跑** — 若你在 `~/projects/...` 建 venv，卻在 `~/Documents/...` 跑 deploy，會出現 `Backend venv not found`。認準一個目錄從頭到尾用。
+
+### 步驟 1 — 安裝（開發 / 生產共用）
 
 ```bash
-# 1. Clone
+# 1. Clone（選定一個固定目錄，例如 ~/protech-nas，之後都在這裡操作）
 git clone https://github.com/JiangAlex/protech-nas.git
 cd protech-nas
 
-# 2. 安裝系統依賴（samba / nfs / docker / node.js 20.x / smartmontools ...）
+# 2. 安裝系統依賴（sudo）
 ./scripts/install.sh
-# 提示：安裝後需登出再登入，docker 群組權限才會生效
+#    完成後「登出再登入」一次，docker 群組權限才會生效（原因見下方摺疊說明）
 
-# 3. 安裝專案依賴（建立 Python venv、npm install、build 前端）
+# 3. 安裝專案依賴 —— 不要加 sudo！（建 venv、npm install、build 前端）
 ./scripts/setup_deps.sh
 
-# 4. 設定環境變數
-cp backend/.env.example backend/.env   # 編輯：務必設定 SECRET_KEY
-
-# 5. 啟動（開發模式）
-cd backend && source .venv/bin/activate
-uvicorn src.main:app --reload --port 8000   # 後端
-cd ../frontend && npm run dev                # 前端（另開終端）
-
-# 6. Access
-# Web UI:  http://localhost:5173
-# API Doc: http://localhost:8000/docs
-# Login:   admin / admin123
+# 4. 確認 venv 已建好（應印出 uvicorn 路徑，沒有代表上一步失敗）
+ls backend/.venv/bin/uvicorn
 ```
 
-> #### 為什麼安裝後需登出再登入，docker 群組權限才會生效？
->
+> 💡 **不需要手動設定 `.env` / `SECRET_KEY`。** 生產部署時 `deploy.sh` 會自動從
+> `.env.example` 建立 `.env` 並產生一組隨機 `SECRET_KEY`（已存在的自訂值不會被覆蓋）。
+> 若要跑「開發模式」而 `.env` 還沒建，先 `cp backend/.env.example backend/.env`。
+
+### 步驟 2A — 開發模式（本機測試用，不開機自啟）
+
+```bash
+# 後端（終端一）
+cd backend && source .venv/bin/activate
+uvicorn src.main:app --reload --port 8000
+
+# 前端（終端二）
+cd frontend && npm run dev
+
+# 存取：http://localhost:5173   （API 文件：http://localhost:8000/docs）
+# 登入：admin / admin123
+```
+
+### 步驟 2B — 生產部署（含開機自啟，正式使用建議這個）
+
+```bash
+# 前置：nginx 已裝（install.sh 已含）；在「步驟 1 的同一個目錄」下執行
+sudo NAS_USER=$USER ./scripts/deploy.sh
+```
+
+`deploy.sh` 會一次完成：自動產生 `SECRET_KEY` → build 前端 → 部署到 `/var/www/protech-nas`
+→ 安裝並 `enable` systemd service（**開機自啟**）→ 設定 Nginx（listen 80）→ 設定 sudoers
+→ `enable` nginx。完成後可直接用 `http://<NAS-IP>`（免加 port）存取。
+
+```bash
+# 部署後常用指令
+systemctl status protech-nas       # 目前狀態（預期 active (running)）
+journalctl -u protech-nas -f       # 即時日誌
+systemctl restart protech-nas      # 重啟
+```
+
+<details>
+<summary>為什麼安裝後需登出再登入，docker 群組權限才會生效？</summary>
+
 > `install.sh` 最後會執行 `sudo usermod -aG docker $USER` 把目前使用者加入 `docker` 群組。
 > Docker daemon 透過 Unix socket `/var/run/docker.sock` 溝通，該 socket 擁有者為 `root`、
 > 群組為 `docker`（權限 `srw-rw----`），只有 root 或 docker 群組成員能存取，否則執行 `docker ps`
@@ -102,63 +142,40 @@ cd ../frontend && npm run dev                # 前端（另開終端）
 > 不會更新「當前正在運行」的 session，因此需要登出再登入（重建 session、重新讀取群組）才會生效。
 >
 > ```bash
-> # 驗證：/etc/group 已更新，但目前 session 尚未生效時，兩者輸出會不一致
 > getent group docker   # 檔案設定 — usermod 後立即包含你的帳號
 > groups                # 目前 session 生效中的群組 — 重新登入後才會出現 docker
+> newgrp docker         # 不想登出時：開一個帶 docker 群組的子 shell（僅該 shell 生效）
 > ```
->
-> 不想登出，可用以下方式在新 session 套用群組（僅該 shell 生效）：
->
-> ```bash
-> newgrp docker         # 開啟一個帶 docker 群組的子 shell
-> # 或重新建立一次 SSH 連線
-> ```
+</details>
 
-### 方式二：手動安裝
+## 開機自啟：兩種範圍 & 驗證
+
+「開機自啟」由 **systemd** 負責（service 一旦 `enable`，開機就自動啟動）；
+「免 port 存取」（直接 `http://<IP>` 不加 `:5173`）由 **Nginx（listen 80）** 達成。
+依需求選一個腳本：
+
+| 腳本 | 內容 | 開機自啟範圍 | 存取方式 |
+|------|------|-------------|----------|
+| `scripts/deploy.sh` | 後端 + 前端 build + Nginx(80) | 後端 + Nginx | ✅ `http://<IP>`（推薦） |
+| `scripts/deploy-service.sh` | 只安裝後端 systemd service | 後端(8000) | `http://<IP>:8000` |
 
 ```bash
-# 1. Clone
-git clone https://github.com/JiangAlex/protech-nas.git
-cd protech-nas
-
-# 2. Backend setup
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env  # Edit: set SECRET_KEY
-
-# 3. Start backend
-uvicorn src.main:app --host 0.0.0.0 --port 8000
-
-# 4. Frontend setup (new terminal)
-cd frontend
-npm install
-npm run dev
-
-# 5. Access
-# Web UI:  http://localhost:5173
-# API Doc: http://localhost:8000/docs
-# Login:   admin / admin123
-```
-
-## Production Deployment
-
-### 方式一：一鍵部署（推薦）
-
-```bash
-# 前置：先完成 setup_deps.sh 並設定好 backend/.env
-# deploy.sh 會自動完成：build 前端、部署到 web root、安裝 systemd service、
-# 設定 Nginx、設定 sudoers、開機自動啟動
+# 推薦：完整部署（免 port 存取）
 sudo NAS_USER=$USER ./scripts/deploy.sh
 
-# 部署後常用指令
-systemctl status protech-nas
-journalctl -u protech-nas -f
-systemctl restart protech-nas
+# 或：只要後端開機自啟、不裝 Nginx
+sudo ./scripts/deploy-service.sh
+
+# 驗證是否會開機自啟（enabled = 開機會自動啟動）
+systemctl is-enabled protech-nas   # 預期：enabled
+systemctl status protech-nas       # 預期：active (running)
+sudo systemctl disable protech-nas # 取消開機自啟
 ```
 
-### 方式二：手動部署
+### 手動部署（進階，不使用腳本時）
+
+<details>
+<summary>展開手動 systemd + Nginx 步驟</summary>
 
 ```bash
 # Backend — systemd service
@@ -174,43 +191,10 @@ sudo ln -sf /etc/nginx/sites-available/protech-nas /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 # Nginx 提供 /var/www/protech-nas/ 並反向代理 /api/* 至 localhost:8000
 ```
+</details>
 
-### 開機自啟 & 免 port 存取
-
-開機自啟由 **systemd** 負責：service 一旦 `enable`，開機時便會自動啟動。
-「免 port 存取」（直接 `http://<IP>` 不加 `:5173`）則由 **Nginx（listen 80）** 達成——
-Nginx 提供前端靜態檔並反向代理 `/api/*` 至後端的 8000 port。
-
-| 腳本 | 內容 | 開機自啟範圍 | 免 port 存取 |
-|------|------|-------------|-------------|
-| `scripts/deploy.sh` | 後端 + 前端 build + Nginx(80) | 後端 + Nginx | ✅ `http://<IP>` |
-| `scripts/deploy-service.sh` | 只安裝後端 systemd service | 後端(8000) | ❌ 需 `http://<IP>:8000` |
-
-**設定（免 port，推薦）：** 直接跑 `deploy.sh`，內部會 `systemctl enable protech-nas` 與
-`systemctl enable nginx`，兩者皆設為開機自啟：
-
-```bash
-sudo apt install nginx                 # 提供 80 port（免 port 存取的前提）
-sudo NAS_USER=$USER ./scripts/deploy.sh
-```
-
-**只需後端開機自啟（不設 Nginx）：**
-
-```bash
-sudo ./scripts/deploy-service.sh       # 路徑自適應，僅安裝並啟用後端 service
-```
-
-**驗證是否會開機自啟**（`enabled` 代表開機會自動啟動）：
-
-```bash
-systemctl is-enabled protech-nas       # 預期：enabled
-systemctl is-enabled nginx             # 預期：enabled（僅 deploy.sh 方式）
-systemctl status protech-nas           # 預期：active (running)
-sudo systemctl disable protech-nas     # 取消開機自啟
-```
-
-> ⚠️ 前置條件：`backend/.venv` 已建立（`setup_deps.sh`）、`backend/.env` 已設定，
-> 否則 systemd service 會啟動失敗。腳本會在部署前檢查並提示。
+> ⚠️ 前置條件：`backend/.venv` 已建立（`setup_deps.sh`），否則 systemd service 會啟動失敗。
+> `deploy.sh` 會在部署前 pre-flight 檢查並提示。
 
 ## 印表機分享設定（CUPS/IPP）
 
@@ -245,6 +229,40 @@ sudo systemctl restart protech-nas
 完成後於 Web UI 的「印表機」頁操作：**偵測 USB 印表機 → 新增並分享 → 列出/測試頁/佇列管理**。
 
 > 💡 USB 印表機需已插上 NAS。CUPS 也提供自身管理介面於 `http://<NAS-IP>:631`。
+
+### 其他電腦如何連線至分享印表機
+
+分享的印表機透過 **IPP（port 631）** 對外提供，並相容 **AirPrint**。先在 NAS 開啟對外分享：
+
+```bash
+sudo cupsctl --share-printers --remote-any   # 開啟分享 + 允許遠端存取
+sudo systemctl restart cups
+```
+
+> ⚠️ 若其他電腦與 NAS 在同一實體區網，請用 NAS 的區網 IP（例如 `192.168.x.x`），
+> 而非 Tailscale 的 `100.x` 位址（後者僅同一 tailnet 內可達）。
+
+分享 URL 格式（`<NAS-IP>` 換成實際位址，`EPSON_L310` 換成你的印表機名稱）：
+
+```
+ipp://<NAS-IP>:631/printers/EPSON_L310
+```
+
+| OS | 連線方式 |
+|----|----------|
+| **Windows** | 印表機與掃描器 → 新增裝置 →「我想要的印表機不在清單中」→「使用 TCP/IP 位址或主機名稱」→ 類型選 **IPP** → URL 填 `http://<NAS-IP>:631/printers/<名稱>` |
+| **macOS** | 印表機與掃描器 → 加入（+）→ 多半 Bonjour 直接列出（選 AirPrint）；否則「IP」分頁：位址 `<NAS-IP>`、協定 **IPP**、佇列 `printers/<名稱>` |
+| **Linux** | `sudo lpadmin -p <本地名稱> -v "ipp://<NAS-IP>:631/printers/<名稱>" -E -m everywhere`（用戶端走 IPP，故 `everywhere` 適用） |
+
+驗證連通性：在其他電腦瀏覽器開 `http://<NAS-IP>:631/printers/<名稱>`，看得到頁面即代表分享與網路皆正常。
+
+若搜尋不到或連不上，在 NAS 放行防火牆（IPP=tcp 631；AirPrint/Bonjour 自動探索=mDNS udp 5353）：
+
+```bash
+sudo iptables -A INPUT -p tcp --dport 631 -j ACCEPT
+sudo iptables -A INPUT -p udp --dport 5353 -j ACCEPT
+sudo apt install -y avahi-daemon        # 讓其他裝置能自動探索
+```
 
 ## Project Structure
 
