@@ -13,7 +13,9 @@
 nas ALL=(ALL) NOPASSWD: /usr/sbin/smartctl
 
 # Storage — Disk formatting
-nas ALL=(ALL) NOPASSWD: /sbin/mkfs.ext4, /sbin/mkfs.xfs, /sbin/mkfs.btrfs, /usr/sbin/mkfs.exfat
+# NOTE: cover both /sbin and /usr/sbin: on usr-merge systems `which mkfs.ext4`
+# resolves to /usr/sbin, and sudoers matches the resolved absolute path.
+nas ALL=(ALL) NOPASSWD: /sbin/mkfs.ext4, /usr/sbin/mkfs.ext4, /sbin/mkfs.xfs, /usr/sbin/mkfs.xfs, /sbin/mkfs.btrfs, /usr/sbin/mkfs.btrfs, /sbin/mkfs.exfat, /usr/sbin/mkfs.exfat
 
 # Storage — Mount/Unmount
 nas ALL=(ALL) NOPASSWD: /bin/mount, /bin/umount
