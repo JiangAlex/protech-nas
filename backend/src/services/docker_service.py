@@ -398,6 +398,34 @@ import subprocess as _subprocess
 import tempfile
 import os as _os
 
+# Cache for the detected compose command.
+_COMPOSE_CMD = None
+
+
+def _compose_cmd() -> list[str]:
+    """Return the base command for Docker Compose on this host.
+
+    Prefers the v2 plugin form (`docker compose`); falls back to the standalone
+    v1 binary (`docker-compose`). Some hosts (e.g. those with only
+    docker-compose 1.29) do not have the v2 plugin, where `docker compose`
+    fails with "unknown command". Detected once and cached.
+    """
+    global _COMPOSE_CMD
+    if _COMPOSE_CMD is not None:
+        return list(_COMPOSE_CMD)
+    # Try v2 plugin first
+    try:
+        r = _subprocess.run(["docker", "compose", "version"],
+                            capture_output=True, text=True, timeout=10)
+        if r.returncode == 0:
+            _COMPOSE_CMD = ["docker", "compose"]
+            return list(_COMPOSE_CMD)
+    except Exception:
+        pass
+    # Fall back to standalone v1
+    _COMPOSE_CMD = ["docker-compose"]
+    return list(_COMPOSE_CMD)
+
 
 def deploy_compose(yaml_content: str, project_name: str) -> dict:
     """Deploy a Docker Compose project from YAML content.
@@ -432,7 +460,7 @@ def deploy_compose(yaml_content: str, project_name: str) -> dict:
 
     # Deploy
     r = _subprocess.run(
-        ["docker", "compose", "-p", project_name, "-f", compose_file, "up", "-d"],
+        _compose_cmd() + ["-p", project_name, "-f", compose_file, "up", "-d"],
         capture_output=True, text=True, timeout=300
     )
 
@@ -458,14 +486,23 @@ def list_compose_projects() -> dict:
     """
     try:
         r = _subprocess.run(
-            ["docker", "compose", "ls", "--format", "json"],
+            _compose_cmd() + ["ls", "--format", "json"],
             capture_output=True, text=True, timeout=10
         )
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except Exception:
+        r = None
 
-    if r.returncode != 0:
-        return {"success": False, "error": r.stderr.strip()}
+    # v1 (docker-compose 1.29) has no `ls` subcommand; fall back to scanning the
+    # directory where deploy_compose() writes project files.
+    if r is None or r.returncode != 0:
+        base = f"{_os.path.expanduser('~')}/.protech-nas/compose"
+        projects = []
+        if _os.path.isdir(base):
+            for name in sorted(_os.listdir(base)):
+                cfg = _os.path.join(base, name, "docker-compose.yml")
+                if _os.path.isfile(cfg):
+                    projects.append({"name": name, "status": "unknown", "config_files": cfg})
+        return {"success": True, "projects": projects}
 
     projects = []
     try:
@@ -500,7 +537,7 @@ def remove_compose_project(name: str, remove_volumes: bool = False) -> dict:
     compose_dir = f"{_os.path.expanduser('~')}/.protech-nas/compose/{name}"
     compose_file = _os.path.join(compose_dir, "docker-compose.yml")
 
-    cmd = ["docker", "compose", "-p", name]
+    cmd = _compose_cmd() + ["-p", name]
     if _os.path.exists(compose_file):
         cmd += ["-f", compose_file]
     cmd += ["down"]
