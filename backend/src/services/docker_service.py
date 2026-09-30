@@ -447,6 +447,25 @@ def deploy_compose(yaml_content: str, project_name: str) -> dict:
     if "privileged: true" in lower_yaml:
         return {"success": False, "error": "Privileged containers are not allowed"}
 
+    # Validate that the content is a well-formed compose document *before* we
+    # write it and hand it to docker-compose, so callers get a clear message
+    # (e.g. "YAML 頂層必須是物件") instead of docker-compose's cryptic
+    # "Top level object ... needs to be an object not '<class 'str'>'", which
+    # happens when the pasted YAML lost its indentation / became a single
+    # scalar string.
+    try:
+        import yaml as _yaml
+        parsed = _yaml.safe_load(yaml_content)
+    except _yaml.YAMLError as e:
+        return {"success": False, "error": f"YAML 解析失敗（請檢查縮排/格式）：{str(e)[:200]}"}
+    if not isinstance(parsed, dict):
+        return {"success": False,
+                "error": "YAML 格式錯誤：頂層必須是物件（如 services:），"
+                         "貼上的內容看起來被當成單一字串——請確認換行與縮排未遺失。"}
+    if "services" not in parsed or not isinstance(parsed.get("services"), dict):
+        return {"success": False,
+                "error": "YAML 缺少有效的 services 區塊（services: 底下需縮排列出各服務）。"}
+
     # Write to temp file
     compose_dir = f"{_os.path.expanduser('~')}/.protech-nas/compose/{project_name}"
     _os.makedirs(compose_dir, exist_ok=True)
