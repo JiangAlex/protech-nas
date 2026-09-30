@@ -13,3 +13,6 @@ backend/data/
 # Local docs (not tracked)
 docs/*.md
 memory.md
+
+# Deploy compose files may contain plaintext secrets (DB password, secret key)
+deploy/**/docker-compose.yml
