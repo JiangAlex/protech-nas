@@ -590,8 +590,8 @@ async function deployCompose() {
   composeDeployLoading.value = true
   try {
     await api.post('/api/docker/compose/deploy', {
-      name: composeForm.name,
-      yaml: composeForm.yaml,
+      project_name: composeForm.name,
+      yaml_content: composeForm.yaml,
     })
     ElMessage.success('Compose 專案已部署')
     composeDeployVisible.value = false

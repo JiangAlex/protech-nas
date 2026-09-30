@@ -22,7 +22,19 @@ api.interceptors.response.use(
   (error) => {
     if (error.response) {
       const { status, data } = error.response
-      const detail = data?.detail || data?.error || '未知錯誤'
+      let detail = data?.detail || data?.error || '未知錯誤'
+      // FastAPI validation errors: detail is an array of {loc, msg, type}.
+      // Stringify to a readable message instead of "[object Object]".
+      if (Array.isArray(detail)) {
+        detail = detail
+          .map((e) => {
+            const field = Array.isArray(e?.loc) ? e.loc[e.loc.length - 1] : ''
+            return field ? `${field}: ${e?.msg || ''}` : (e?.msg || JSON.stringify(e))
+          })
+          .join('; ')
+      } else if (typeof detail === 'object') {
+        detail = detail.msg || JSON.stringify(detail)
+      }
 
       if (status === 401) {
         localStorage.removeItem('token')
