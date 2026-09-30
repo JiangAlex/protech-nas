@@ -3,6 +3,7 @@
 import os
 import platform
 import time
+from datetime import datetime, timedelta
 import psutil
 
 
@@ -1100,7 +1101,6 @@ def get_metrics_history(hours: int = 24) -> dict:
         return {"success": True, "data": []}
 
     # Filter by time
-    from datetime import timedelta
     cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
     filtered = [m for m in metrics if m.get("timestamp", "") >= cutoff]
 
