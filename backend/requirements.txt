@@ -13,7 +13,11 @@ python-multipart==0.0.20
 docker==7.1.0
 pyyaml==6.0.2
 aiofiles==24.1.0
-sqlalchemy[asyncio]==2.0.36
+# Bumped to 2.0.54: 2.0.36 predates Python 3.14 and crashes at ORM mapper
+# scan with "TypeError: descriptor '__getitem__' requires a 'typing.Union'
+# object but received a 'tuple'" (make_union_type). Python 3.14 support was
+# added across the 2.0.41–2.0.54 line.
+sqlalchemy[asyncio]==2.0.54
 aiosqlite==0.20.0
 structlog==24.4.0
 APScheduler==3.10.4
