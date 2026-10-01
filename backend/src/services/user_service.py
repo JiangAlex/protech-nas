@@ -3,8 +3,29 @@
 import subprocess
 
 
+# Commands that require root privileges (modify /etc/passwd, /etc/group, /etc/shadow, quota)
+_PRIVILEGED_COMMANDS = frozenset([
+    "useradd", "userdel", "usermod", "groupadd", "groupdel", "groupmod",
+    "chpasswd", "smbpasswd", "gpasswd", "quota", "setquota",
+    "passwd",       # also privileged
+])
+
+
 def _run(cmd: list[str], input_data: str = None) -> tuple[int, str, str]:
-    """Run a command and return (returncode, stdout, stderr)."""
+    """Run a command and return (returncode, stdout, stderr).
+
+    Commands in _PRIVILEGED_COMMANDS are automatically run via sudo so they
+    work when the FastAPI service runs as a non-root user (uid 1000).
+    """
+    import os
+    # Skip sudo if already root (e.g. running as root or in a container
+    # where sudo is not needed); also skip if the binary path is absolute
+    # (protects against accidentally sudo-ing a custom command).
+    if os.geteuid() != 0 and cmd and cmd[0] not in _PRIVILEGED_COMMANDS:
+        pass  # no sudo needed
+    elif cmd and cmd[0] in _PRIVILEGED_COMMANDS and os.geteuid() != 0:
+        cmd = ["sudo", "-n", *cmd]
+
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=10, input=input_data)
         return r.returncode, r.stdout, r.stderr
@@ -241,12 +262,12 @@ def set_smb_password(username: str, password: str) -> dict:
         return {"success": False, "error": f"User {username} does not exist"}
 
     # smbpasswd -a -s reads password from stdin (two lines)
-    rc, out, err = _run(["sudo", "smbpasswd", "-a", "-s", username], input_data=f"{password}\n{password}\n")
+    rc, out, err = _run(["smbpasswd", "-a", "-s", username], input_data=f"{password}\n{password}\n")
     if rc != 0:
         return {"success": False, "error": f"Failed to set SMB password: {err.strip()}"}
 
     # Ensure enabled
-    _run(["sudo", "smbpasswd", "-e", username])
+    _run(["smbpasswd", "-e", username])
 
     return {"success": True, "message": f"SMB password set for {username}"}
 
