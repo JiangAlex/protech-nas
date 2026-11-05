@@ -101,8 +101,9 @@
             </template>
           </el-table-column>
           <el-table-column prop="services" label="服務數" width="100" />
-          <el-table-column label="操作" width="100">
+          <el-table-column label="操作" width="170">
             <template #default="{ row }">
+              <el-button type="primary" size="small" @click="openCopyCompose(row.name)">複製</el-button>
               <el-button type="danger" size="small" @click="removeComposeProject(row.name)">移除</el-button>
             </template>
           </el-table-column>
@@ -245,6 +246,26 @@
         <el-button type="primary" :loading="composeDeployLoading" @click="deployCompose">部署</el-button>
       </template>
     </el-dialog>
+
+    <!-- Compose Copy Dialog -->
+    <el-dialog v-model="composeCopyVisible" title="複製 Compose 專案" width="500px">
+      <el-form :model="composeCopyForm" label-width="110px">
+        <el-form-item label="來源專案">
+          <el-input v-model="composeCopyForm.source" disabled />
+        </el-form-item>
+        <el-form-item label="新專案名稱" required>
+          <el-input v-model="composeCopyForm.newName" placeholder="my-project-copy" />
+        </el-form-item>
+      </el-form>
+      <p style="color:#999;font-size:12px;line-height:1.6;margin:0;">
+        複製後將以新名稱直接部署。為避免衝突，容器名稱會加上後綴、對外連接埠會自動改用其他未占用的埠。
+        具名 Volume 由 Compose 依專案隔離，複製品會使用全新的空 Volume（<b>不會</b>複製原始資料）。
+      </p>
+      <template #footer>
+        <el-button @click="composeCopyVisible = false">取消</el-button>
+        <el-button type="primary" :loading="composeCopyLoading" @click="copyCompose">複製並部署</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -325,6 +346,9 @@ const composeLoading = ref(false)
 const composeDeployVisible = ref(false)
 const composeDeployLoading = ref(false)
 const composeForm = reactive({ name: '', yaml: '' })
+const composeCopyVisible = ref(false)
+const composeCopyLoading = ref(false)
+const composeCopyForm = reactive({ source: '', newName: '' })
 
 // === Data Loading ===
 async function loadData() {
@@ -609,6 +633,30 @@ async function removeComposeProject(name) {
     ElMessage.success('專案已移除')
     loadComposeProjects()
   } catch { /* handled */ }
+}
+
+function openCopyCompose(name) {
+  composeCopyForm.source = name
+  composeCopyForm.newName = `${name}-copy`
+  composeCopyVisible.value = true
+}
+
+async function copyCompose() {
+  if (!composeCopyForm.newName) {
+    ElMessage.warning('請填寫新專案名稱')
+    return
+  }
+  composeCopyLoading.value = true
+  try {
+    await api.post(`/api/docker/compose/projects/${composeCopyForm.source}/copy`, {
+      new_name: composeCopyForm.newName,
+      deploy: true,
+    })
+    ElMessage.success('專案已複製並部署')
+    composeCopyVisible.value = false
+    loadComposeProjects()
+  } catch { /* handled */ }
+  finally { composeCopyLoading.value = false }
 }
 
 onMounted(() => {

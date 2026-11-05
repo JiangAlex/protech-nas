@@ -11,7 +11,8 @@ from ..services.docker_service import (
     get_container_stats, inspect_container, prune_images,
     list_networks, create_network, remove_network,
     list_volumes, create_volume, remove_volume,
-    deploy_compose, list_compose_projects, remove_compose_project
+    deploy_compose, list_compose_projects, remove_compose_project,
+    copy_compose_project
 )
 
 router = APIRouter(prefix="/api/docker", tags=["docker"])
@@ -226,6 +227,26 @@ async def delete_compose_project(
 ):
     """Remove a Docker Compose project."""
     result = remove_compose_project(name, remove_volumes=remove_volumes)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+class ComposeCopyRequest(BaseModel):
+    new_name: str
+    deploy: bool = True
+
+
+@router.post("/compose/projects/{name}/copy")
+async def post_compose_copy(
+    name: str, req: ComposeCopyRequest, user=Depends(get_current_user)
+):
+    """Copy a Compose project under a new name and optionally deploy it.
+
+    Ports and explicit container names are adjusted so the copy can run
+    alongside the source.
+    """
+    result = copy_compose_project(name, req.new_name, deploy=req.deploy)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

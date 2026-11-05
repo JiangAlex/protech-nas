@@ -572,3 +572,163 @@ def remove_compose_project(name: str, remove_volumes: bool = False) -> dict:
         return {"success": False, "error": r.stderr.strip()[:200]}
 
     return {"success": True, "message": f"Project {name} removed"}
+
+
+def _used_host_ports() -> set[int]:
+    """Collect host ports already published by running containers.
+
+    Used when copying a compose project so the copy's published ports can be
+    shifted off ports that are already in use, avoiding "port is already
+    allocated" failures on deploy. Best-effort: returns an empty set if Docker
+    is unavailable.
+    """
+    ports: set[int] = set()
+    client = _get_client()
+    if not client:
+        return ports
+    try:
+        for c in client.containers.list(all=False):
+            bindings = (c.attrs.get("HostConfig", {}) or {}).get("PortBindings", {}) or {}
+            for host_list in bindings.values():
+                for hb in host_list or []:
+                    hp = hb.get("HostPort")
+                    if hp:
+                        try:
+                            ports.add(int(hp))
+                        except ValueError:
+                            pass
+    except Exception:
+        pass
+    return ports
+
+
+def _shift_compose_for_copy(parsed: dict, new_name: str, used_ports: set[int]) -> dict:
+    """Return a deep-copied compose dict adjusted to coexist with its source.
+
+    - Suffixes any explicit ``container_name`` with ``-{new_name}`` so it won't
+      collide with the original project's containers.
+    - Shifts each published host port to the next free port (incrementing and
+      skipping ports already in use), so the copy can run alongside the source.
+
+    Service-level volumes using named volumes are left as-is: Docker Compose
+    namespaces them per project (``{project}_{volume}``), so the copy gets its
+    own fresh volumes automatically.
+    """
+    import copy as _copy
+    import re as _re
+
+    data = _copy.deepcopy(parsed)
+    taken = set(used_ports)
+    services = data.get("services")
+    if not isinstance(services, dict):
+        return data
+
+    def _next_free(start: int) -> int:
+        p = start
+        while p in taken or p > 65535:
+            p += 1
+            if p > 65535:
+                p = 1024
+        taken.add(p)
+        return p
+
+    for _svc_name, svc in services.items():
+        if not isinstance(svc, dict):
+            continue
+        # Make container_name unique for the copy
+        if isinstance(svc.get("container_name"), str) and svc["container_name"]:
+            svc["container_name"] = f"{svc['container_name']}-{new_name}"
+
+        # Shift published host ports
+        ports = svc.get("ports")
+        if isinstance(ports, list):
+            new_ports = []
+            for entry in ports:
+                # Short string syntax, e.g. "8080:80", "127.0.0.1:8080:80/tcp", "80"
+                if isinstance(entry, str):
+                    m = _re.match(
+                        r"^(?P<ip>\d{1,3}(?:\.\d{1,3}){3}:)?"
+                        r"(?P<host>\d+):(?P<rest>.+)$",
+                        entry,
+                    )
+                    if m:
+                        host = _next_free(int(m.group("host")) + 1)
+                        ip = m.group("ip") or ""
+                        new_ports.append(f"{ip}{host}:{m.group('rest')}")
+                    else:
+                        new_ports.append(entry)
+                # Long object syntax, e.g. {published: 8080, target: 80}
+                elif isinstance(entry, dict) and "published" in entry:
+                    e = dict(entry)
+                    try:
+                        e["published"] = _next_free(int(entry["published"]) + 1)
+                    except (ValueError, TypeError):
+                        pass
+                    new_ports.append(e)
+                else:
+                    new_ports.append(entry)
+            svc["ports"] = new_ports
+
+    return data
+
+
+def copy_compose_project(src_name: str, new_name: str, deploy: bool = True) -> dict:
+    """Copy an existing compose project under a new name and (optionally) deploy it.
+
+    The copied compose document is adjusted so it can run alongside the source:
+    explicit container names are suffixed and published host ports are shifted
+    to free ports. Named volumes are namespaced per project by Compose, so the
+    copy starts with its own empty volumes (source data is NOT copied).
+
+    Args:
+        src_name: Existing project name to copy from.
+        new_name: Name for the new project (alphanumeric, hyphens, underscores).
+        deploy: If True (default), run ``up -d`` for the copy after writing it.
+
+    Returns:
+        {"success": bool, "services": list[str], "message": str} on success,
+        or {"success": False, "error": str}.
+    """
+    if not new_name or not new_name.replace("-", "").replace("_", "").isalnum():
+        return {"success": False, "error": "Invalid project name (alphanumeric, hyphens, underscores only)"}
+    if new_name == src_name:
+        return {"success": False, "error": "New project name must differ from the source"}
+
+    base = f"{_os.path.expanduser('~')}/.protech-nas/compose"
+    src_file = _os.path.join(base, src_name, "docker-compose.yml")
+    if not _os.path.isfile(src_file):
+        return {"success": False, "error": f"Source project '{src_name}' not found"}
+
+    dst_dir = _os.path.join(base, new_name)
+    if _os.path.exists(dst_dir):
+        return {"success": False, "error": f"Project '{new_name}' already exists"}
+
+    try:
+        with open(src_file, "r") as f:
+            src_yaml = f.read()
+    except IOError as e:
+        return {"success": False, "error": str(e)}
+
+    import yaml as _yaml
+    try:
+        parsed = _yaml.safe_load(src_yaml)
+    except _yaml.YAMLError as e:
+        return {"success": False, "error": f"來源 YAML 解析失敗：{str(e)[:200]}"}
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("services"), dict):
+        return {"success": False, "error": "來源 compose 檔格式無效（缺少 services 區塊）。"}
+
+    adjusted = _shift_compose_for_copy(parsed, new_name, _used_host_ports())
+    new_yaml = _yaml.safe_dump(adjusted, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+    if not deploy:
+        # Write the copy without deploying it.
+        try:
+            _os.makedirs(dst_dir, exist_ok=True)
+            with open(_os.path.join(dst_dir, "docker-compose.yml"), "w") as f:
+                f.write(new_yaml)
+        except IOError as e:
+            return {"success": False, "error": str(e)}
+        return {"success": True, "services": [], "message": f"Project {new_name} copied (not deployed)"}
+
+    # deploy_compose() writes the file and runs `up -d`.
+    return deploy_compose(new_yaml, new_name)
