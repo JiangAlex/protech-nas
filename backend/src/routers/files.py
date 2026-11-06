@@ -1,6 +1,6 @@
 """Files router — file manager API (browse, upload, download, mkdir, delete)."""
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from ..auth import get_current_user
@@ -33,11 +33,15 @@ async def get_file_list(path: str = Query(...), user=Depends(get_current_user)):
 
 @router.post("/upload")
 async def post_upload(
-    dest: str = Query(...),
+    dest: str = Form(...),
     file: UploadFile = File(...),
     user=Depends(get_current_user),
 ):
-    """Upload a file to the specified destination directory."""
+    """Upload a file to the specified destination directory.
+
+    `dest` is sent as a multipart form field (matching the frontend's
+    el-upload `data` option), alongside the uploaded file.
+    """
     content = await file.read()
     result = save_upload(file.filename or "upload", content, dest)
     if not result["success"]:
